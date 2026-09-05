@@ -119,8 +119,15 @@ app.Use(async (context, next) =>
     headers["Referrer-Policy"] = "no-referrer";
     await next();
 });
-
-app.UseHttpsRedirection();
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
+else
+{
+    app.UseHttpsRedirection();
+}
 app.UseCors("SpaAllowlist");
 
 app.UseAuthentication();
@@ -128,11 +135,7 @@ app.UseAuthorization();
 
 app.UseRateLimiter();
 
-if (app.Environment.IsDevelopment())
-{
-    app.UseSwagger();
-    app.UseSwaggerUI();
-}
+
 
 app.MapControllers();
 

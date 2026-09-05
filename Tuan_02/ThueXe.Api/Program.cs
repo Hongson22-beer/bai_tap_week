@@ -18,6 +18,7 @@ builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(connectionString));
 
 builder.Services.AddScoped<IXeService, XeService>();
+builder.Services.AddScoped<ILoaiXeService, LoaiXeService>();
 
 var app = builder.Build();
 

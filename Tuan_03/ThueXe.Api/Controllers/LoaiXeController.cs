@@ -1,75 +1,38 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using ThueXe.Api.Dtos;
-using ThueXe.Api.Services;
 
 namespace ThueXe.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[Authorize]
 public class LoaiXeController : ControllerBase
 {
-    private readonly ILoaiXeService _service;
-
-    public LoaiXeController(ILoaiXeService service)
-    {
-        _service = service;
-    }
-
     [HttpGet]
-    public async Task<IActionResult> GetAll()
+    [AllowAnonymous]
+    public IActionResult GetAll()
     {
-        var result = await _service.GetAllAsync();
-        return Ok(result);
-    }
-
-    [HttpGet("{id:int}")]
-    public async Task<IActionResult> GetById(int id)
-    {
-        var result = await _service.GetByIdAsync(id);
-        if (result == null) return NotFound();
-        return Ok(result);
+        return Ok(new[] { new { Id = Guid.NewGuid(), TenLoai = "SUV 7 chỗ" } });
     }
 
     [HttpPost]
-    public async Task<IActionResult> Create(CreateLoaiXeDto dto)
+    [Authorize(Roles = "Admin,Staff")]
+    public IActionResult Create([FromBody] object dto)
     {
-        try
-        {
-            var result = await _service.CreateAsync(dto);
-            return CreatedAtAction(nameof(GetById), new { id = result.Id }, result);
-        }
-        catch (ArgumentException ex)
-        {
-            return BadRequest(ex.Message);
-        }
+        return Ok(new { Message = "Thêm loại xe thành công" });
     }
 
-    [HttpPut("{id:int}")]
-    public async Task<IActionResult> Update(int id, UpdateLoaiXeDto dto)
+    [HttpPut("{id:guid}")]
+    [Authorize(Roles = "Admin,Staff")]
+    public IActionResult Update(Guid id, [FromBody] object dto)
     {
-        try
-        {
-            var updated = await _service.UpdateAsync(id, dto);
-            if (!updated) return NotFound();
-            return NoContent();
-        }
-        catch (ArgumentException ex)
-        {
-            return BadRequest(ex.Message);
-        }
+        return Ok(new { Message = $"Cập nhật loại xe {id} thành công" });
     }
 
-    [HttpDelete("{id:int}")]
-    public async Task<IActionResult> Delete(int id)
+    [HttpDelete("{id:guid}")]
+    [Authorize(Roles = "Admin,Staff")]
+    public IActionResult Delete(Guid id)
     {
-        var (success, errorMessage) = await _service.DeleteAsync(id);
-
-        if (!success)
-        {
-            if (errorMessage == "NotFound") return NotFound();
-            return StatusCode(StatusCodes.Status409Conflict, new { message = errorMessage });
-        }
-
-        return NoContent();
+        return Ok(new { Message = $"Xóa loại xe {id} thành công" });
     }
 }

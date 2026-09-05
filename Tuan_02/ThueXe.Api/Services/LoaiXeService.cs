@@ -82,21 +82,20 @@ public class LoaiXeService : ILoaiXeService
         return true;
     }
 
-    public async Task<(bool Success, string? ErrorMessage)> DeleteAsync(int id)
+ public async Task<(bool Success, string? ErrorMessage)> DeleteAsync(int id)
+{
+    var entity = await _context.LoaiXes.FindAsync(id);
+    if (entity == null) return (false, "NotFound");
+
+    // Kiểm tra trực tiếp bảng Xe xem có xe nào thuộc loại này không
+    bool hasXe = await _context.Xes.AnyAsync(x => x.IdLoaiXe == id);
+    if (hasXe)
     {
-        var entity = await _context.LoaiXes
-            .Include(l => l.Xes)
-            .FirstOrDefaultAsync(l => l.Id == id);
-
-        if (entity == null) return (false, "NotFound");
-
-        if (entity.Xes.Any())
-        {
-            return (false, "Conflict: Không thể xóa loại xe này vì vẫn còn xe thuộc loại xe này.");
-        }
-
-        _context.LoaiXes.Remove(entity);
-        await _context.SaveChangesAsync();
-        return (true, null);
+        throw new InvalidOperationException("Không thể xóa loại xe này vì vẫn còn xe thuộc loại xe này.");
     }
+
+    _context.LoaiXes.Remove(entity);
+    await _context.SaveChangesAsync();
+    return (true, null);
+}
 }

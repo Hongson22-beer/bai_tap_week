@@ -100,23 +100,21 @@ namespace ThueXe.Api.Services
             return true;
         }
 
-        public async Task<bool> DeleteAsync(int id)
-        {
-            var entity = await _context.HangXes
-                .Include(h => h.Xes)
-                .FirstOrDefaultAsync(h => h.Id == id);
+       public async Task<bool> DeleteAsync(int id)
+{
+    var entity = await _context.HangXes.FindAsync(id);
+    if (entity == null) return false;
 
-            if (entity == null) return false;
+    // Kiểm tra trực tiếp bảng Xe xem có xe nào thuộc hãng này không
+    bool hasXe = await _context.Xes.AnyAsync(x => x.IdHangXe == id);
+    if (hasXe)
+    {
+        throw new InvalidOperationException("Không thể xóa hãng xe này vì vẫn còn xe thuộc hãng.");
+    }
 
-            // Chặn xóa nếu còn xe thuộc hãng này
-            if (entity.Xes.Any())
-            {
-                throw new InvalidOperationException("Không thể xóa hãng xe này vì vẫn còn xe thuộc hãng.");
-            }
-
-            _context.HangXes.Remove(entity);
-            await _context.SaveChangesAsync();
-            return true;
-        }
+    _context.HangXes.Remove(entity);
+    await _context.SaveChangesAsync();
+    return true;
+}
     }
 }

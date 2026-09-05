@@ -10,7 +10,9 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 builder.Services.AddProblemDetails();
 builder.Services.AddExceptionHandler<ApiExceptionHandler>();
-
+builder.Services.AddScoped<IXeService, XeService>();
+builder.Services.AddScoped<IHangXeService, HangXeService>();
+builder.Services.AddScoped<ILoaiXeService, LoaiXeService>();
 var connectionString = builder.Configuration.GetConnectionString("RentalDb")
     ?? throw new InvalidOperationException("Missing ConnectionStrings:RentalDb");
 

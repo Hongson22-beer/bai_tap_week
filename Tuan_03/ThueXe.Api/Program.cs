@@ -27,6 +27,9 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 builder.Services.AddScoped<IXeService, XeService>();
 builder.Services.AddScoped<IHangXeService, HangXeService>();
 builder.Services.AddScoped<ILoaiXeService, LoaiXeService>();
+
+// Đăng ký Identity Services (Tuần 3)
+builder.Services.AddScoped<IPasswordService, PasswordService>();
 builder.Services.AddScoped<TokenService>();
 
 // Cấu hình Authentication JwtBearer
@@ -107,6 +110,14 @@ builder.Services.AddSwaggerGen(c =>
 
 var app = builder.Build();
 
+// Tự động Seed dữ liệu tài khoản mẫu Tuần 3
+using (var scope = app.Services.CreateScope())
+{
+    var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    var passwordService = scope.ServiceProvider.GetRequiredService<IPasswordService>();
+    await IdentitySeeder.SeedAsync(dbContext, passwordService);
+}
+
 // Thứ tự Middleware
 app.UseExceptionHandler();
 
@@ -119,6 +130,7 @@ app.Use(async (context, next) =>
     headers["Referrer-Policy"] = "no-referrer";
     await next();
 });
+
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -128,14 +140,13 @@ else
 {
     app.UseHttpsRedirection();
 }
+
 app.UseCors("SpaAllowlist");
 
 app.UseAuthentication();
 app.UseAuthorization();
 
 app.UseRateLimiter();
-
-
 
 app.MapControllers();
 

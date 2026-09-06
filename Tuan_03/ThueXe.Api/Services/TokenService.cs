@@ -1,42 +1,47 @@
+using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
-using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
+using ThueXe.Api.Models;
 
 namespace ThueXe.Api.Services;
 
-public sealed class TokenService(IConfiguration config)
+public class TokenService
 {
-    public string Create(long userId, string email, long? customerId, IEnumerable<string> roles)
-    {
-        var key = new SymmetricSecurityKey(
-            Encoding.UTF8.GetBytes(config["Jwt:SigningKey"]!));
+    private readonly IConfiguration _config;
 
+    public TokenService(IConfiguration config)
+    {
+        _config = config;
+    }
+
+    public string GenerateToken(AppUser user, IEnumerable<string> roles)
+    {
         var claims = new List<Claim>
         {
-            new(ClaimTypes.NameIdentifier, userId.ToString()),
-            new(ClaimTypes.Email, email),
+            new(ClaimTypes.NameIdentifier, user.Id.ToString()),
+            new(ClaimTypes.Email, user.Email),
+            new(ClaimTypes.Name, user.FullName)
         };
 
-        if (customerId is not null)
+        foreach (var role in roles)
         {
-            // Claim dùng để chống BOLA khi khách hàng thao tác trên tài nguyên của chính mình
-            claims.Add(new Claim("customer_id", customerId.Value.ToString()));
+            claims.Add(new Claim(ClaimTypes.Role, role));
         }
 
-        claims.AddRange(roles.Select(r => new Claim(ClaimTypes.Role, r)));
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(
+            _config["Jwt:SigningKey"] ?? "KhoaBiMatChoJWTThueXeApiItNhat32KyTu2026"));
 
-        var descriptor = new SecurityTokenDescriptor
-        {
-            Issuer = config["Jwt:Issuer"],
-            Audience = config["Jwt:Audience"],
-            Subject = new ClaimsIdentity(claims),
-            Expires = DateTime.UtcNow.AddMinutes(
-                int.Parse(config["Jwt:AccessTokenMinutes"] ?? "30")),
-            SigningCredentials = new SigningCredentials(
-                key, SecurityAlgorithms.HmacSha256),
-        };
+        var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
-        return new JsonWebTokenHandler().CreateToken(descriptor);
+        var token = new JwtSecurityToken(
+            issuer: _config["Jwt:Issuer"] ?? "ThueXeApi",
+            audience: _config["Jwt:Audience"] ?? "ThueXeApiClients",
+            claims: claims,
+            expires: DateTime.UtcNow.AddHours(8),
+            signingCredentials: creds
+        );
+
+        return new JwtSecurityTokenHandler().WriteToken(token);
     }
 }

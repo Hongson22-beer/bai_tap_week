@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="BtlThueXe.Api/BtlThueXe.Api.csproj" />
+  <Project Path="BtlThueXe.Core/BtlThueXe.Core.csproj" />
+  <Project Path="BtlThueXe.Infrastructure/BtlThueXe.Infrastructure.csproj" />
+</Solution>

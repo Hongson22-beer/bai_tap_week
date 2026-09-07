@@ -116,7 +116,7 @@ public class VehicleService : IVehicleService
             MauXe = dto.MauXe,
             NamSanXuat = dto.NamSanXuat,
             DonGiaNgay = dto.DonGiaNgay,
-            TrangThai = "AVAILABLE", // Mặc định xe mới có thể cho thuê
+            TrangThai = "AVAILABLE",
             MoTa = dto.MoTa,
             CreatedAt = now,
             UpdatedAt = now
@@ -126,5 +126,71 @@ public class VehicleService : IVehicleService
         await _context.SaveChangesAsync();
 
         return (await GetByIdAsync(xe.Id))!;
+    }
+
+    public async Task<VehicleResponseDto> UpdateAsync(int id, UpdateVehicleDto dto)
+    {
+        var xe = await _context.Xes.FindAsync(id);
+        if (xe == null) throw new Exception("Không tìm thấy xe.");
+
+        // BR-02: Kiểm tra biển số duy nhất nếu có đổi biển
+        if (xe.BienSoXe != dto.BienSoXe && await _context.Xes.AnyAsync(x => x.BienSoXe == dto.BienSoXe))
+            throw new Exception("Biển số xe đã tồn tại.");
+
+        xe.IdHangXe = dto.IdHangXe;
+        xe.IdLoaiXe = dto.IdLoaiXe;
+        xe.BienSoXe = dto.BienSoXe;
+        xe.MauXe = dto.MauXe;
+        xe.NamSanXuat = dto.NamSanXuat;
+        xe.DonGiaNgay = dto.DonGiaNgay;
+        xe.MoTa = dto.MoTa;
+        xe.UpdatedAt = DateTime.SpecifyKind(DateTime.Now, DateTimeKind.Unspecified);
+
+        await _context.SaveChangesAsync();
+        return (await GetByIdAsync(id))!;
+    }
+
+   public async Task<VehicleResponseDto> ChangeStatusAsync(int id, UpdateVehicleStatusDto dto, int idNguoiDung)
+    {
+        var xe = await _context.Xes.FindAsync(id);
+        if (xe == null) throw new Exception("Không tìm thấy xe.");
+
+        var validStatuses = new[] { "AVAILABLE", "MAINTENANCE", "INACTIVE" };
+        if (!validStatuses.Contains(dto.TrangThai.ToUpper()))
+            throw new Exception("Trạng thái xe không hợp lệ (Chỉ chấp nhận AVAILABLE, MAINTENANCE, INACTIVE).");
+
+        string trangThaiCu = xe.TrangThai;
+        xe.TrangThai = dto.TrangThai.ToUpper();
+        xe.UpdatedAt = DateTime.SpecifyKind(DateTime.Now, DateTimeKind.Unspecified);
+
+        // Ghi nhận lịch sử thay đổi trạng thái xe khớp với bảng lich_su_trang_thai_xe
+        var lichSu = new LichSuTrangThaiXe
+        {
+            IdXe = xe.Id,
+            TrangThaiCu = trangThaiCu,
+            TrangThaiMoi = xe.TrangThai,
+            LyDo = dto.GhiChu,
+            ThoiGianThayDoi = DateTime.SpecifyKind(DateTime.Now, DateTimeKind.Unspecified)
+        };
+        _context.LichSuTrangThaiXes.Add(lichSu);
+
+        await _context.SaveChangesAsync();
+        return (await GetByIdAsync(id))!;
+    }
+
+    public async Task<List<VehicleStatusHistoryDto>> GetStatusHistoryAsync(int id)
+    {
+        return await _context.LichSuTrangThaiXes
+            .Where(h => h.IdXe == id)
+            .OrderByDescending(h => h.ThoiGianThayDoi)
+            .Select(h => new VehicleStatusHistoryDto
+            {
+                Id = h.Id,
+                TrangThaiCu = h.TrangThaiCu,
+                TrangThaiMoi = h.TrangThaiMoi,
+                LyDo = h.LyDo,
+                CreatedAt = h.ThoiGianThayDoi
+            })
+            .ToListAsync();
     }
 }

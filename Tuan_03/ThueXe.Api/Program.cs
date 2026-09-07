@@ -8,7 +8,8 @@ using Microsoft.OpenApi.Models;
 using ThueXe.Api.Data;
 using ThueXe.Api.Infrastructure;
 using ThueXe.Api.Services;
-
+using Microsoft.AspNetCore.Authorization;
+using ThueXe.Api.Authorization;
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
@@ -54,8 +55,16 @@ builder.Services
             ValidAlgorithms = [SecurityAlgorithms.HmacSha256],
         };
     });
+// Đăng ký Handler vào DI
+builder.Services.AddSingleton<IAuthorizationHandler, CustomerOwnerHandler>();
 
-builder.Services.AddAuthorization();
+// Đăng ký Policy
+builder.Services.AddAuthorization(options =>
+{
+    options.AddPolicy("CanManageCustomerProfile", policy =>
+        policy.Requirements.Add(new CustomerOwnerRequirement()));
+});
+
 
 // CORS Allowlist
 builder.Services.AddCors(options =>
@@ -70,14 +79,15 @@ builder.Services.AddCors(options =>
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
-    options.AddPolicy("login", context => RateLimitPartition.GetFixedWindowLimiter(
-        context.Connection.RemoteIpAddress?.ToString() ?? "unknown",
-        _ => new FixedWindowRateLimiterOptions
-        {
-            Window = TimeSpan.FromMinutes(1),
-            PermitLimit = 5,
-            QueueLimit = 0,
-        }));
+    options.AddPolicy("login", context =>
+        RateLimitPartition.GetFixedWindowLimiter(
+            partitionKey: context.Connection.RemoteIpAddress?.ToString() ?? "global_login_limiter",
+            factory: _ => new FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 3, // Hạ xuống 3 lần để test nhanh
+                Window = TimeSpan.FromMinutes(1),
+                QueueLimit = 0
+            }));
 });
 
 // Swagger hỗ trợ gửi Bearer Token
@@ -140,7 +150,7 @@ else
 {
     app.UseHttpsRedirection();
 }
-
+app.UseRouting();
 app.UseCors("SpaAllowlist");
 
 app.UseAuthentication();

@@ -3,11 +3,12 @@ using Microsoft.EntityFrameworkCore;
 using ThueXe.Api.Data;
 using ThueXe.Api.Dtos;
 using ThueXe.Api.Services;
-
+using Microsoft.AspNetCore.RateLimiting;
 namespace ThueXe.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[EnableRateLimiting("login")]
 public class AuthController : ControllerBase
 {
     private readonly AppDbContext _context;

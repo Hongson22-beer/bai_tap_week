@@ -1,24 +1,18 @@
 using BtlThueXe.Core.DTOs.Evaluations;
-using BtlThueXe.Core.DTOs.AuditLogs;
 using BtlThueXe.Core.Entities;
 using BtlThueXe.Core.Interfaces;
 using BtlThueXe.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
-using System.Text.Json;
 
 namespace BtlThueXe.Infrastructure.Services;
 
 public class EvaluationService : IEvaluationService
 {
     private readonly ApplicationDbContext _context;
-    private readonly IAuditLogService _auditLogService;
 
-    public EvaluationService(
-        ApplicationDbContext context,
-        IAuditLogService auditLogService)
+    public EvaluationService(ApplicationDbContext context)
     {
         _context = context;
-        _auditLogService = auditLogService;
     }
 
     // =========================================================
@@ -55,7 +49,7 @@ public class EvaluationService : IEvaluationService
 
         // Một hợp đồng chỉ được đánh giá một lần
         var evaluationExists =
-            await _context.DanhGias
+            await _context.DanhGia
                 .AnyAsync(x =>
                     x.IdHopDong == request.IdHopDong);
 
@@ -88,68 +82,9 @@ public class EvaluationService : IEvaluationService
                 DateTime.UtcNow
         };
 
-        // =====================================================
-        // LƯU ĐÁNH GIÁ
-        // =====================================================
-        _context.DanhGias.Add(evaluation);
+        _context.DanhGia.Add(evaluation);
 
         await _context.SaveChangesAsync();
-
-        // =====================================================
-        // GHI AUDIT LOG TỰ ĐỘNG
-        // =====================================================
-        var duLieuMoi = JsonSerializer.Serialize(new
-        {
-            idHopDong =
-                evaluation.IdHopDong,
-
-            idKhachHang =
-                evaluation.IdKhachHang,
-
-            idXe =
-                evaluation.IdXe,
-
-            diemDanhGia =
-                evaluation.DiemDanhGia,
-
-            nhanXet =
-                evaluation.NhanXet
-        });
-
-        await _auditLogService.CreateAsync(
-            new CreateAuditLogRequest
-            {
-                /*
-                 * IdKhachHang KHÔNG phải IdNguoiDung.
-                 * Sau khi merge Auth/RBAC sẽ lấy
-                 * id_nguoi_dung từ JWT.
-                 */
-                IdNguoiDung =
-                    null,
-
-                HanhDong =
-                    "EVALUATION_CREATED",
-
-                LoaiDoiTuong =
-                    "EVALUATION",
-
-                IdDoiTuong =
-                    evaluation.Id,
-
-                DuLieuCu =
-                    null,
-
-                DuLieuMoi =
-                    duLieuMoi,
-
-                MoTa =
-                    $"Khách hàng #{evaluation.IdKhachHang} " +
-                    $"đánh giá hợp đồng #{evaluation.IdHopDong} " +
-                    $"{evaluation.DiemDanhGia} sao",
-
-                IpAddress =
-                    null
-            });
 
         return MapToResponse(evaluation);
     }
@@ -164,7 +99,7 @@ public class EvaluationService : IEvaluationService
             return null;
 
         var evaluation =
-            await _context.DanhGias
+            await _context.DanhGia
                 .AsNoTracking()
                 .FirstOrDefaultAsync(
                     x => x.Id == id);
@@ -185,7 +120,7 @@ public class EvaluationService : IEvaluationService
             return null;
 
         var evaluation =
-            await _context.DanhGias
+            await _context.DanhGia
                 .AsNoTracking()
                 .FirstOrDefaultAsync(
                     x => x.IdHopDong == idHopDong);
@@ -203,7 +138,7 @@ public class EvaluationService : IEvaluationService
         GetAllAsync()
     {
         var evaluations =
-            await _context.DanhGias
+            await _context.DanhGia
                 .AsNoTracking()
                 .OrderByDescending(
                     x => x.ThoiGianTao)

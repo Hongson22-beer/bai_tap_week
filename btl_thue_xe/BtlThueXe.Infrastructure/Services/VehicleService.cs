@@ -1,3 +1,4 @@
+using BtlThueXe.Core.Entities;
 using BtlThueXe.Core.DTOs.Vehicles;
 using BtlThueXe.Core.Interfaces;
 using BtlThueXe.Infrastructure.Data;

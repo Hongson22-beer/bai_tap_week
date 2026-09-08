@@ -1,8 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
-using BtlThueXe.Infrastructure;
+using BtlThueXe.Core.Entities;
 using Microsoft.EntityFrameworkCore;
-
 namespace BtlThueXe.Infrastructure.Data;
 
 public partial class ApplicationDbContext : DbContext
@@ -23,7 +22,7 @@ protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
 
     public virtual DbSet<BanGiaoXe> BanGiaoXes { get; set; }
 
-    public virtual DbSet<DanhGium> DanhGia { get; set; }
+    public virtual DbSet<DanhGia> DanhGia { get; set; }
 
     public virtual DbSet<HangXe> HangXes { get; set; }
 
@@ -142,7 +141,7 @@ protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
                 .HasConstraintName("fk_bgx_xe");
         });
 
-        modelBuilder.Entity<DanhGium>(entity =>
+        modelBuilder.Entity<DanhGia>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("danh_gia_pkey");
 
@@ -167,8 +166,8 @@ protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
                 .HasColumnType("timestamp(0) without time zone")
                 .HasColumnName("thoi_gian_tao");
 
-            entity.HasOne(d => d.IdHopDongNavigation).WithOne(p => p.DanhGium)
-                .HasForeignKey<DanhGium>(d => d.IdHopDong)
+            entity.HasOne(d => d.IdHopDongNavigation).WithOne(p => p.DanhGia)
+                .HasForeignKey<DanhGia>(d => d.IdHopDong)
                 .HasConstraintName("fk_dg_hd");
 
             entity.HasOne(d => d.IdKhachHangNavigation).WithMany(p => p.DanhGia)

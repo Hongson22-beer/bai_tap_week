@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 
-namespace BtlThueXe.Infrastructure;
+namespace BtlThueXe.Core.Entities;
 
 public partial class HopDong
 {
@@ -41,7 +41,7 @@ public partial class HopDong
 
     public virtual BanGiaoXe? BanGiaoXe { get; set; }
 
-    public virtual DanhGium? DanhGium { get; set; }
+    public virtual DanhGia? DanhGia { get; set; }
 
     public virtual NguoiDung IdNhanVienLapNavigation { get; set; } = null!;
 

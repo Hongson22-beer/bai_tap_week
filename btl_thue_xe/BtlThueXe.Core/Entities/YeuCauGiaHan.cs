@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 
-namespace BtlThueXe.Infrastructure;
+namespace BtlThueXe.Core.Entities;
 
 public partial class YeuCauGiaHan
 {

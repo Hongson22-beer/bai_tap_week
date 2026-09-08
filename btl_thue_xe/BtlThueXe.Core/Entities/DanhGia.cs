@@ -1,9 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
 
-namespace BtlThueXe.Infrastructure;
+namespace BtlThueXe.Core.Entities;
 
-public partial class DanhGium
+public partial class DanhGia
 {
     public int Id { get; set; }
 

@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Collections.Generic;
 
 namespace BtlThueXe.Infrastructure;
 
@@ -18,6 +17,10 @@ public partial class LichSuTrangThaiHopDong
     public string? LyDo { get; set; }
 
     public DateTime ThoiGianThayDoi { get; set; }
+
+    // =========================
+    // Navigation properties
+    // =========================
 
     public virtual HopDong IdHopDongNavigation { get; set; } = null!;
 

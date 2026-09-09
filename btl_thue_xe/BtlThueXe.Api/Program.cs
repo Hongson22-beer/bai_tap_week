@@ -1,5 +1,6 @@
 using System.Text;
 using BtlThueXe.Core.Interfaces;
+using BtlThueXe.Core.Services;
 using BtlThueXe.Infrastructure.Data;
 using BtlThueXe.Infrastructure.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -19,6 +20,14 @@ builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IVehicleService, VehicleService>();
 builder.Services.AddScoped<ICustomerService, CustomerService>();
 builder.Services.AddScoped<ICategoryService, CategoryService>();
+builder.Services.AddScoped<
+    BtlThueXe.Core.Services.IRentalService,
+    BtlThueXe.Infrastructure.Services.RentalService
+>();
+builder.Services.AddScoped<
+    BtlThueXe.Core.Services.IContractService,
+    BtlThueXe.Infrastructure.Services.ContractService
+>();
 // 3. Cấu hình JWT Bearer
 var jwtKey = builder.Configuration["Jwt:Key"] ?? "DefaultSuperSecretKeyForDevelopmentOnly2026";
 var jwtIssuer = builder.Configuration["Jwt:Issuer"] ?? "BtlThueXeApi";
@@ -68,15 +77,15 @@ builder.Services.AddSwaggerGen(c =>
         Version = "v1" 
     });
 
-    c.AddSecurityDefinition("Bearer", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
-    {
-        Description = "Nhập token theo định dạng: Bearer {token}",
-        Name = "Authorization",
-        In = Microsoft.OpenApi.Models.ParameterLocation.Header,
-        Type = Microsoft.OpenApi.Models.SecuritySchemeType.ApiKey,
-        Scheme = "Bearer"
-    });
-
+   c.AddSecurityDefinition("Bearer", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+{
+    Name = "Authorization",
+    Type = Microsoft.OpenApi.Models.SecuritySchemeType.Http,
+    Scheme = "bearer",
+    BearerFormat = "JWT",
+    In = Microsoft.OpenApi.Models.ParameterLocation.Header,
+    Description = "Nhập JWT token"
+});
     c.AddSecurityRequirement(new Microsoft.OpenApi.Models.OpenApiSecurityRequirement
     {
         {
@@ -94,7 +103,15 @@ builder.Services.AddSwaggerGen(c =>
 });
 
 var app = builder.Build();
+using (var scope = app.Services.CreateScope())
+{
+    var service = scope.ServiceProvider
+        .GetRequiredService<BtlThueXe.Core.Services.IRentalService>();
 
+    Console.WriteLine("======================================");
+    Console.WriteLine("IRentalService RESOLVE THANH CONG!");
+    Console.WriteLine("======================================");
+}
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();

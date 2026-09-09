@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations.Schema; // <-- 1. Thêm namespace này
 
 namespace BtlThueXe.Infrastructure;
 
@@ -41,19 +42,27 @@ public partial class HopDong
 
     public virtual BanGiaoXe? BanGiaoXe { get; set; }
 
-    public virtual DanhGium? DanhGium { get; set; }
+    public virtual DanhGia? DanhGia { get; set; }
 
+    // 2. Bổ sung [ForeignKey] để ánh xạ đúng cột id_nhan_vien_lap
+    [ForeignKey(nameof(IdNhanVienLap))]
     public virtual NguoiDung IdNhanVienLapNavigation { get; set; } = null!;
 
+    // 3. Bổ sung [ForeignKey] để ánh xạ đúng cột id_yeu_cau_thue
+    [ForeignKey(nameof(IdYeuCauThue))]
     public virtual YeuCauThue IdYeuCauThueNavigation { get; set; } = null!;
 
-    public virtual ICollection<LichSuTrangThaiHopDong> LichSuTrangThaiHopDongs { get; set; } = new List<LichSuTrangThaiHopDong>();
+    public virtual ICollection<LichSuTrangThaiHopDong> LichSuTrangThaiHopDongs { get; set; }
+        = new List<LichSuTrangThaiHopDong>();
 
-    public virtual ICollection<ThanhToan> ThanhToans { get; set; } = new List<ThanhToan>();
+    public virtual ICollection<ThanhToan> ThanhToans { get; set; }
+        = new List<ThanhToan>();
 
     public virtual TraXe? TraXe { get; set; }
 
-    public virtual ICollection<YeuCauGiaHan> YeuCauGiaHans { get; set; } = new List<YeuCauGiaHan>();
+    public virtual ICollection<YeuCauGiaHan> YeuCauGiaHans { get; set; }
+        = new List<YeuCauGiaHan>();
 
-    public virtual ICollection<YeuCauHuyHopDong> YeuCauHuyHopDongs { get; set; } = new List<YeuCauHuyHopDong>();
+    public virtual ICollection<YeuCauHuyHopDong> YeuCauHuyHopDongs { get; set; }
+        = new List<YeuCauHuyHopDong>();
 }

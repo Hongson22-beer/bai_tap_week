@@ -3,6 +3,9 @@ using System.Collections.Generic;
 using BtlThueXe.Infrastructure;
 using Microsoft.EntityFrameworkCore;
 
+
+using System.Linq;
+
 namespace BtlThueXe.Infrastructure.Data;
 
 public partial class ApplicationDbContext : DbContext
@@ -23,7 +26,7 @@ protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
 
     public virtual DbSet<BanGiaoXe> BanGiaoXes { get; set; }
 
-    public virtual DbSet<DanhGium> DanhGia { get; set; }
+    public virtual DbSet<DanhGia> DanhGias { get; set; }
 
     public virtual DbSet<HangXe> HangXes { get; set; }
 
@@ -54,6 +57,9 @@ protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
     public virtual DbSet<YeuCauHuyHopDong> YeuCauHuyHopDongs { get; set; }
 
     public virtual DbSet<YeuCauThue> YeuCauThues { get; set; }
+
+    
+    
 
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
@@ -97,6 +103,8 @@ protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
                 .OnDelete(DeleteBehavior.SetNull)
                 .HasConstraintName("fk_audit_nguoi_dung");
         });
+        
+
 
         modelBuilder.Entity<BanGiaoXe>(entity =>
         {
@@ -142,7 +150,7 @@ protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
                 .HasConstraintName("fk_bgx_xe");
         });
 
-        modelBuilder.Entity<DanhGium>(entity =>
+        modelBuilder.Entity<DanhGia>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("danh_gia_pkey");
 
@@ -167,8 +175,8 @@ protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
                 .HasColumnType("timestamp(0) without time zone")
                 .HasColumnName("thoi_gian_tao");
 
-            entity.HasOne(d => d.IdHopDongNavigation).WithOne(p => p.DanhGium)
-                .HasForeignKey<DanhGium>(d => d.IdHopDong)
+            entity.HasOne(d => d.IdHopDongNavigation).WithOne(p => p.DanhGia)
+                .HasForeignKey<DanhGia>(d => d.IdHopDong)
                 .HasConstraintName("fk_dg_hd");
 
             entity.HasOne(d => d.IdKhachHangNavigation).WithMany(p => p.DanhGia)
@@ -203,78 +211,133 @@ protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
                 .HasColumnName("ten");
         });
 
-        modelBuilder.Entity<HopDong>(entity =>
+       modelBuilder.Entity<HopDong>(entity =>
+{
+    entity.HasKey(e => e.Id)
+        .HasName("hop_dong_pkey");
+
+    entity.ToTable("hop_dong");
+
+    // =========================
+    // COLUMNS
+    // =========================
+
+    entity.Property(e => e.Id)
+        .UseIdentityAlwaysColumn()
+        .HasColumnName("id");
+
+    entity.Property(e => e.IdYeuCauThue)
+        .HasColumnName("id_yeu_cau_thue");
+
+    entity.Property(e => e.IdNhanVienLap)
+        .HasColumnName("id_nhan_vien_lap");
+
+    entity.Property(e => e.SoHopDong)
+        .HasMaxLength(50)
+        .HasColumnName("so_hop_dong");
+
+    entity.Property(e => e.DonGiaNgay)
+        .HasPrecision(18, 2)
+        .HasColumnName("don_gia_ngay");
+
+    entity.Property(e => e.SoNgayThue)
+        .HasColumnName("so_ngay_thue");
+
+    entity.Property(e => e.TienThue)
+        .HasPrecision(18, 2)
+        .HasColumnName("tien_thue");
+
+    entity.Property(e => e.TienCoc)
+        .HasPrecision(18, 2)
+        .HasColumnName("tien_coc");
+
+    entity.Property(e => e.TongTien)
+        .HasPrecision(18, 2)
+        .HasColumnName("tong_tien");
+
+    entity.Property(e => e.DieuKhoan)
+        .HasColumnName("dieu_khoan");
+
+    entity.Property(e => e.TrangThai)
+        .HasMaxLength(40)
+        .HasDefaultValueSql("'DRAFT'::character varying")
+        .HasColumnName("trang_thai");
+
+    entity.Property(e => e.ThoiGianNhanDuKien)
+        .HasColumnType("timestamp(0) without time zone")
+        .HasColumnName("thoi_gian_nhan_du_kien");
+
+    entity.Property(e => e.ThoiGianTraDuKien)
+        .HasColumnType("timestamp(0) without time zone")
+        .HasColumnName("thoi_gian_tra_du_kien");
+
+    entity.Property(e => e.ThoiGianNhanThucTe)
+        .HasColumnType("timestamp(0) without time zone")
+        .HasColumnName("thoi_gian_nhan_thuc_te");
+
+    entity.Property(e => e.ThoiGianTraThucTe)
+        .HasColumnType("timestamp(0) without time zone")
+        .HasColumnName("thoi_gian_tra_thuc_te");
+
+    entity.Property(e => e.ThoiGianTao)
+        .HasDefaultValueSql("CURRENT_TIMESTAMP")
+        .HasColumnType("timestamp(0) without time zone")
+        .HasColumnName("thoi_gian_tao");
+
+    entity.Property(e => e.ThoiGianCapNhat)
+        .HasDefaultValueSql("CURRENT_TIMESTAMP")
+        .HasColumnType("timestamp(0) without time zone")
+        .HasColumnName("thoi_gian_cap_nhat");
+
+
+    // =========================
+    // FK: HopDong -> NguoiDung
+    // =========================
+
+    entity.HasOne(e => e.IdNhanVienLapNavigation)
+        .WithMany(e => e.HopDongs)
+        .HasForeignKey(e => e.IdNhanVienLap)
+        .HasPrincipalKey(e => e.Id)
+        .OnDelete(DeleteBehavior.Restrict)
+        .HasConstraintName("fk_hd_nhan_vien");
+
+
+    // =========================
+    // FK: HopDong -> YeuCauThue
+    // =========================
+
+    entity.HasOne(e => e.IdYeuCauThueNavigation)
+        .WithOne(e => e.HopDong)
+        .HasForeignKey<HopDong>(e => e.IdYeuCauThue)
+        .HasPrincipalKey<YeuCauThue>(e => e.Id)
+        .OnDelete(DeleteBehavior.Restrict)
+        .HasConstraintName("fk_hd_yct");
+
+
+    // =========================
+    // INDEX
+    // =========================
+
+    entity.HasIndex(e => e.IdYeuCauThue)
+        .HasDatabaseName("hop_dong_id_yeu_cau_thue_key")
+        .IsUnique();
+
+    entity.HasIndex(e => e.SoHopDong)
+        .HasDatabaseName("hop_dong_so_hop_dong_key")
+        .IsUnique();
+
+    entity.HasIndex(
+        e => new
         {
-            entity.HasKey(e => e.Id).HasName("hop_dong_pkey");
+            e.ThoiGianNhanDuKien,
+            e.ThoiGianTraDuKien
+        },
+        "idx_hd_thoi_gian");
 
-            entity.ToTable("hop_dong");
-
-            entity.HasIndex(e => e.IdYeuCauThue, "hop_dong_id_yeu_cau_thue_key").IsUnique();
-
-            entity.HasIndex(e => e.SoHopDong, "hop_dong_so_hop_dong_key").IsUnique();
-
-            entity.HasIndex(e => new { e.ThoiGianNhanDuKien, e.ThoiGianTraDuKien }, "idx_hd_thoi_gian");
-
-            entity.HasIndex(e => e.TrangThai, "idx_hd_trang_thai");
-
-            entity.Property(e => e.Id)
-                .UseIdentityAlwaysColumn()
-                .HasColumnName("id");
-            entity.Property(e => e.DieuKhoan).HasColumnName("dieu_khoan");
-            entity.Property(e => e.DonGiaNgay)
-                .HasPrecision(18, 2)
-                .HasColumnName("don_gia_ngay");
-            entity.Property(e => e.IdNhanVienLap).HasColumnName("id_nhan_vien_lap");
-            entity.Property(e => e.IdYeuCauThue).HasColumnName("id_yeu_cau_thue");
-            entity.Property(e => e.SoHopDong)
-                .HasMaxLength(50)
-                .HasColumnName("so_hop_dong");
-            entity.Property(e => e.SoNgayThue).HasColumnName("so_ngay_thue");
-            entity.Property(e => e.ThoiGianCapNhat)
-                .HasDefaultValueSql("CURRENT_TIMESTAMP")
-                .HasColumnType("timestamp(0) without time zone")
-                .HasColumnName("thoi_gian_cap_nhat");
-            entity.Property(e => e.ThoiGianNhanDuKien)
-                .HasColumnType("timestamp(0) without time zone")
-                .HasColumnName("thoi_gian_nhan_du_kien");
-            entity.Property(e => e.ThoiGianNhanThucTe)
-                .HasColumnType("timestamp(0) without time zone")
-                .HasColumnName("thoi_gian_nhan_thuc_te");
-            entity.Property(e => e.ThoiGianTao)
-                .HasDefaultValueSql("CURRENT_TIMESTAMP")
-                .HasColumnType("timestamp(0) without time zone")
-                .HasColumnName("thoi_gian_tao");
-            entity.Property(e => e.ThoiGianTraDuKien)
-                .HasColumnType("timestamp(0) without time zone")
-                .HasColumnName("thoi_gian_tra_du_kien");
-            entity.Property(e => e.ThoiGianTraThucTe)
-                .HasColumnType("timestamp(0) without time zone")
-                .HasColumnName("thoi_gian_tra_thuc_te");
-            entity.Property(e => e.TienCoc)
-                .HasPrecision(18, 2)
-                .HasColumnName("tien_coc");
-            entity.Property(e => e.TienThue)
-                .HasPrecision(18, 2)
-                .HasColumnName("tien_thue");
-            entity.Property(e => e.TongTien)
-                .HasPrecision(18, 2)
-                .HasColumnName("tong_tien");
-            entity.Property(e => e.TrangThai)
-                .HasMaxLength(40)
-                .HasDefaultValueSql("'DRAFT'::character varying")
-                .HasColumnName("trang_thai");
-
-            entity.HasOne(d => d.IdNhanVienLapNavigation).WithMany(p => p.HopDongs)
-                .HasForeignKey(d => d.IdNhanVienLap)
-                .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("fk_hd_nhan_vien");
-
-            entity.HasOne(d => d.IdYeuCauThueNavigation).WithOne(p => p.HopDong)
-                .HasForeignKey<HopDong>(d => d.IdYeuCauThue)
-                .OnDelete(DeleteBehavior.ClientSetNull)
-                .HasConstraintName("fk_hd_yct");
-        });
-
+    entity.HasIndex(
+        e => e.TrangThai,
+        "idx_hd_trang_thai");
+});
         modelBuilder.Entity<KhachHang>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("khach_hang_pkey");
@@ -837,8 +900,44 @@ protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
                 .OnDelete(DeleteBehavior.ClientSetNull)
                 .HasConstraintName("fk_yct_xe");
         });
+     Console.WriteLine("========== DEBUG HOPDONG ==========");
 
-        OnModelCreatingPartial(modelBuilder);
+var hopDong = modelBuilder.Model.FindEntityType(typeof(HopDong));
+
+if (hopDong != null)
+{
+    Console.WriteLine("PROPERTIES:");
+
+    foreach (var p in hopDong.GetProperties())
+    {
+        Console.WriteLine(
+            $"  {p.Name} -> {p.GetColumnName()}");
+    }
+
+    Console.WriteLine("FOREIGN KEYS:");
+
+    foreach (var fk in hopDong.GetForeignKeys())
+    {
+        Console.WriteLine(
+            $"  FK: {string.Join(",", fk.Properties.Select(x => x.Name))}" +
+            $" -> {fk.PrincipalEntityType.ClrType.Name}" +
+            $" | Navigation: {fk.DependentToPrincipal?.Name}");
+    }
+
+    Console.WriteLine("NAVIGATIONS:");
+
+    foreach (var nav in hopDong.GetNavigations())
+    {
+        Console.WriteLine(
+            $"  {nav.Name} -> FK: " +
+            $"{string.Join(",", nav.ForeignKey.Properties.Select(x => x.Name))}");
+    }
+}
+
+Console.WriteLine("===================================");
+
+        // Tạm thời không gọi partial
+        // OnModelCreatingPartial(modelBuilder);
     }
 
     partial void OnModelCreatingPartial(ModelBuilder modelBuilder);

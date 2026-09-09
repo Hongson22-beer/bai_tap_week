@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 
+
 namespace BtlThueXe.Infrastructure;
 
 public partial class KhachHang
@@ -21,7 +22,7 @@ public partial class KhachHang
 
     public DateTime UpdatedAt { get; set; }
 
-    public virtual ICollection<DanhGium> DanhGia { get; set; } = new List<DanhGium>();
+    public virtual ICollection<DanhGia> DanhGia { get; set; } = new List<DanhGia>();
 
     public virtual NguoiDung IdNguoiDungNavigation { get; set; } = null!;
 

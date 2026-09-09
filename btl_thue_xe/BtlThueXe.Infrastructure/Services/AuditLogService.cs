@@ -1,5 +1,5 @@
 using BtlThueXe.Core.DTOs.AuditLogs;
-using BtlThueXe.Core.Entities;
+using BtlThueXe.Infrastructure;
 using BtlThueXe.Core.Interfaces;
 using BtlThueXe.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;

@@ -1,7 +1,9 @@
 ﻿using System;
 using System.Collections.Generic;
 
+
 namespace BtlThueXe.Infrastructure;
+
 
 public partial class Xe
 {
@@ -29,7 +31,7 @@ public partial class Xe
 
     public virtual ICollection<BanGiaoXe> BanGiaoXes { get; set; } = new List<BanGiaoXe>();
 
-    public virtual ICollection<DanhGium> DanhGia { get; set; } = new List<DanhGium>();
+    public virtual ICollection<DanhGia> DanhGia { get; set; } = new List<DanhGia>();
 
     public virtual HangXe IdHangXeNavigation { get; set; } = null!;
 

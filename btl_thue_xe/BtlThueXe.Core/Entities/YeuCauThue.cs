@@ -35,6 +35,7 @@ public partial class YeuCauThue
 
     public virtual HopDong? HopDong { get; set; }
 
+    // Các Navigation Property có sẵn trong Entity của bạn:
     public virtual KhachHang IdKhachHangNavigation { get; set; } = null!;
 
     public virtual NguoiDung? IdNhanVienXuLyNavigation { get; set; }

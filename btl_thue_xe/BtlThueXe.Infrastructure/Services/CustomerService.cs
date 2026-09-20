@@ -22,7 +22,8 @@ public class CustomerService : ICustomerService
                 .ThenInclude(u => u.IdVaiTros)
             .FirstOrDefaultAsync(k => k.IdNguoiDung == userId);
 
-        if (kh == null) return null;
+        if (kh == null)
+            return null;
 
         return new CustomerProfileResponseDto
         {
@@ -30,12 +31,20 @@ public class CustomerService : ICustomerService
             IdNguoiDung = kh.IdNguoiDung,
             HoTen = kh.IdNguoiDungNavigation.HoTen,
             Email = kh.IdNguoiDungNavigation.Email,
-            SoDienThoai = kh.IdNguoiDungNavigation.SoDienThoai,
+
+            SoDienThoai =
+                kh.IdNguoiDungNavigation.SoDienThoai
+                ?? string.Empty,
+
             SoCccd = kh.SoCccd,
             CccdDaXacMinh = kh.CccdDaXacMinh,
             DiaChi = kh.DiaChi,
             NgaySinh = kh.NgaySinh,
-            Roles = kh.IdNguoiDungNavigation.IdVaiTros.Select(r => r.Ten).ToList()
+
+            Roles = kh.IdNguoiDungNavigation
+                .IdVaiTros
+                .Select(r => r.Ten)
+                .ToList()
         };
     }
 
@@ -50,25 +59,41 @@ public class CustomerService : ICustomerService
                 IdNguoiDung = kh.IdNguoiDung,
                 HoTen = kh.IdNguoiDungNavigation.HoTen,
                 Email = kh.IdNguoiDungNavigation.Email,
-                SoDienThoai = kh.IdNguoiDungNavigation.SoDienThoai,
+
+                SoDienThoai =
+                    kh.IdNguoiDungNavigation.SoDienThoai
+                    ?? string.Empty,
+
                 SoCccd = kh.SoCccd,
                 CccdDaXacMinh = kh.CccdDaXacMinh,
                 DiaChi = kh.DiaChi,
                 NgaySinh = kh.NgaySinh,
-                Roles = kh.IdNguoiDungNavigation.IdVaiTros.Select(r => r.Ten).ToList()
+
+                Roles = kh.IdNguoiDungNavigation
+                    .IdVaiTros
+                    .Select(r => r.Ten)
+                    .ToList()
             })
             .ToListAsync();
     }
 
     public async Task<bool> VerifyCccdAsync(int customerId, bool daXacMinh)
     {
-        var kh = await _context.KhachHangs.FindAsync(customerId);
-        if (kh == null) return false;
+        var kh = await _context.KhachHangs
+            .FindAsync(customerId);
+
+        if (kh == null)
+            return false;
 
         kh.CccdDaXacMinh = daXacMinh;
-        kh.UpdatedAt = DateTime.SpecifyKind(DateTime.Now, DateTimeKind.Unspecified);
+
+        kh.UpdatedAt =
+            DateTime.SpecifyKind(
+                DateTime.Now,
+                DateTimeKind.Unspecified);
 
         await _context.SaveChangesAsync();
+
         return true;
     }
 }

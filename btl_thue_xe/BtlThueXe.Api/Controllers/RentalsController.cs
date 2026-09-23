@@ -152,5 +152,24 @@ namespace BtlThueXe.Api.Controllers
         }
 
         #endregion
+
+        #region 7. PUT /api/rentals/{id}/cancel
+
+        [HttpPut("{id:int}/cancel")]
+        [Authorize(Roles = "NHAN_VIEN")]
+        public async Task<ActionResult<RentalResponseDto>> CancelRental(
+            int id,
+            [FromBody] CancelRentalDto request)
+        {
+            int staffUserId = GetCurrentUserId();
+            string? currentUserRole = GetCurrentUserRole();
+
+            var result = await _rentalService.CancelRentalAsync(
+                id, request, staffUserId, currentUserRole);
+
+            return Ok(result);
+        }
+
+        #endregion
     }
 }

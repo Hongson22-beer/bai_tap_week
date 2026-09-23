@@ -544,6 +544,9 @@ protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
 
             entity.HasIndex(e => e.IdHopDong, "idx_tt_hop_dong");
 
+            entity.HasIndex(e => e.MaGiaoDich, "ux_thanh_toan_ma_giao_dich")
+                .IsUnique();
+
             entity.HasIndex(e => e.TrangThai, "idx_tt_trang_thai");
 
             entity.Property(e => e.Id)

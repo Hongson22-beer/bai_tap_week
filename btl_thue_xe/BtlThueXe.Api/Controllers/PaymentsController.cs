@@ -177,6 +177,22 @@ public class PaymentsController : ControllerBase
     }
 
     // =====================================================
+    // XỬ LÝ HOÀN TIỀN
+    // NHAN_VIEN
+    // POST /api/Payments/{id}/refund
+    // =====================================================
+    [HttpPost("{id:int}/refund")]
+    [Authorize(Roles = "NHAN_VIEN")]
+    public async Task<IActionResult> Refund(int id)
+    {
+        var result = await _paymentService.ProcessRefundAsync(
+            id,
+            GetCurrentUserId());
+
+        return Ok(result);
+    }
+
+    // =====================================================
     // XEM THANH TOÁN THEO ID
     // NHAN_VIEN / ADMIN
     // GET /api/Payments/1

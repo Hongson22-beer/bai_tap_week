@@ -24,6 +24,8 @@ public class AuthService : IAuthService
 
     public async Task<AuthResponseDto> RegisterCustomerAsync(RegisterRequestDto dto)
     {
+        await using var transaction = await _context.Database.BeginTransactionAsync();
+
         // 1. Kiểm tra BR-01: Email duy nhất
         if (await _context.NguoiDungs.AnyAsync(u => u.Email == dto.Email))
             throw new Exception("Email đã được sử dụng trong hệ thống.");
@@ -74,6 +76,7 @@ public class AuthService : IAuthService
 
         _context.KhachHangs.Add(khachHang);
         await _context.SaveChangesAsync();
+        await transaction.CommitAsync();
 
         var roles = new List<string> { "KHACH_HANG" };
         var token = GenerateJwtToken(nguoiDung, roles);
@@ -115,7 +118,8 @@ public class AuthService : IAuthService
 
     private string GenerateJwtToken(NguoiDung user, List<string> roles)
     {
-        var jwtKey = _config["Jwt:Key"] ?? "DefaultSuperSecretKeyForDevelopmentOnly2026";
+        var jwtKey = _config["Jwt:Key"]
+            ?? throw new InvalidOperationException("Jwt:Key chưa được cấu hình.");
         var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey));
         var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 

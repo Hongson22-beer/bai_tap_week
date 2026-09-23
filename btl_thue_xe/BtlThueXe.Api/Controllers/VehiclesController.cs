@@ -91,8 +91,13 @@ public class VehiclesController : ControllerBase
     {
         try
         {
-            var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier) ?? User.FindFirstValue("sub");
-            int userId = int.TryParse(userIdStr, out var parsed) ? parsed : 1;
+            var userIdStr = User.FindFirstValue(ClaimTypes.NameIdentifier)
+                ?? User.FindFirstValue("sub")
+                ?? User.FindFirstValue("id");
+
+            if (!int.TryParse(userIdStr, out int userId))
+                throw new UnauthorizedAccessException(
+                    "Không xác định được người dùng từ JWT.");
 
             var vehicle = await _vehicleService.ChangeStatusAsync(id, dto, userId);
             return Ok(vehicle);

@@ -169,6 +169,7 @@ public class VehicleService : IVehicleService
             IdXe = xe.Id,
             TrangThaiCu = trangThaiCu,
             TrangThaiMoi = xe.TrangThai,
+            IdNguoiThayDoi = idNguoiDung,
             LyDo = dto.GhiChu,
             ThoiGianThayDoi = DateTime.SpecifyKind(DateTime.Now, DateTimeKind.Unspecified)
         };

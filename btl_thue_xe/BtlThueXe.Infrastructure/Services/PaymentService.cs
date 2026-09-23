@@ -237,6 +237,10 @@ public class PaymentService : IPaymentService
             await UpdateContractAfterPaymentAsync(
                 hopDong,
                 currentUserId);
+
+            await CompleteReturnedContractAfterExtraFeeAsync(
+                hopDong,
+                currentUserId);
         }
 
         await _context.SaveChangesAsync();
@@ -355,6 +359,10 @@ public class PaymentService : IPaymentService
                 hopDong,
                 null);
 
+            await CompleteReturnedContractAfterExtraFeeAsync(
+                hopDong,
+                null);
+
             await _context.SaveChangesAsync();
         }
 
@@ -366,6 +374,60 @@ public class PaymentService : IPaymentService
                 : "PAYMENT_WEBHOOK_FAILED");
 
         return MapToResponse(payment);
+    }
+
+    // =========================================================
+    // HOÀN TIỀN: REFUND_PENDING -> REFUNDED
+    // Đồng thời tạo bản ghi HOAN_TIEN để truy vết đúng loại nghiệp vụ BA.
+    // =========================================================
+    public async Task<PaymentResponse> ProcessRefundAsync(
+        int paymentId,
+        int currentUserId)
+    {
+        if (currentUserId <= 0)
+            throw new UnauthorizedAccessException("Không xác định được nhân viên.");
+
+        var original = await _context.ThanhToans
+            .FirstOrDefaultAsync(x => x.Id == paymentId);
+
+        if (original == null)
+            throw new KeyNotFoundException("Không tìm thấy thanh toán cần hoàn.");
+
+        if (!string.Equals(original.TrangThai, "REFUND_PENDING", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Chỉ được hoàn giao dịch ở trạng thái REFUND_PENDING.");
+
+        var refundCode = $"RF-{original.Id}-{Guid.NewGuid().ToString("N")[..8].ToUpperInvariant()}";
+        var now = DateTime.UtcNow;
+
+        await using var transaction = await _context.Database.BeginTransactionAsync();
+        try
+        {
+            original.TrangThai = "REFUNDED";
+
+            var refund = new ThanhToan
+            {
+                IdHopDong = original.IdHopDong,
+                LoaiThanhToan = "HOAN_TIEN",
+                SoTien = original.SoTien,
+                PhuongThuc = original.PhuongThuc,
+                MaGiaoDich = refundCode,
+                TrangThai = "REFUNDED",
+                GhiChu = $"Hoàn tiền cho giao dịch #{original.Id} ({original.MaGiaoDich}).",
+                ThoiGianThanhToan = now
+            };
+
+            _context.ThanhToans.Add(refund);
+            await _context.SaveChangesAsync();
+            await transaction.CommitAsync();
+
+            await WriteAuditAsync(currentUserId, refund, "PAYMENT_REFUNDED");
+            return MapToResponse(refund);
+        }
+        catch
+        {
+            await transaction.RollbackAsync();
+            throw;
+        }
     }
 
     // =========================================================
@@ -559,6 +621,51 @@ public class PaymentService : IPaymentService
                     "Hợp đồng đã sẵn sàng bàn giao xe.",
                 ThoiGianThayDoi =
                     now
+            });
+    }
+
+    // =========================================================
+    // SAU KHI TRẢ XE CÓ PHÍ: chỉ COMPLETED khi đã thanh toán đủ phí.
+    // =========================================================
+    private async Task CompleteReturnedContractAfterExtraFeeAsync(
+        HopDong hopDong,
+        int? currentUserId)
+    {
+        if (!string.Equals(hopDong.TrangThai, "RETURNED", StringComparison.OrdinalIgnoreCase))
+            return;
+
+        var returnInfo = await _context.TraXes
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.IdHopDong == hopDong.Id);
+
+        if (returnInfo == null)
+            return;
+
+        decimal requiredFee = returnInfo.TongPhiPhatSinh;
+        if (requiredFee <= 0)
+            return;
+
+        decimal paidFee = await _context.ThanhToans
+            .Where(x => x.IdHopDong == hopDong.Id &&
+                        x.LoaiThanhToan == "PHI_PHAT_SINH" &&
+                        x.TrangThai == "PAID")
+            .SumAsync(x => (decimal?)x.SoTien) ?? 0m;
+
+        if (paidFee < requiredFee)
+            return;
+
+        hopDong.TrangThai = "COMPLETED";
+        hopDong.ThoiGianCapNhat = DateTime.UtcNow;
+
+        _context.LichSuTrangThaiHopDongs.Add(
+            new LichSuTrangThaiHopDong
+            {
+                IdHopDong = hopDong.Id,
+                TrangThaiCu = "RETURNED",
+                TrangThaiMoi = "COMPLETED",
+                IdNguoiThayDoi = currentUserId,
+                LyDo = "Đã thanh toán đủ phí phát sinh sau khi trả xe.",
+                ThoiGianThayDoi = DateTime.UtcNow
             });
     }
 

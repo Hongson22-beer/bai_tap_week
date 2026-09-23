@@ -1,12 +1,13 @@
 using System.Text;
-using BtlThueXe.Api.Middlewares;
 using BtlThueXe.Core.Interfaces;
 using BtlThueXe.Core.Services;
 using BtlThueXe.Infrastructure.Data;
 using BtlThueXe.Infrastructure.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Diagnostics;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using Microsoft.OpenApi.Models;
 
 AppContext.SetSwitch(
     "Npgsql.EnableLegacyTimestampBehavior",
@@ -19,8 +20,9 @@ var builder = WebApplication.CreateBuilder(args);
 // =========================================================
 
 var connectionString =
-    builder.Configuration
-        .GetConnectionString("DefaultConnection");
+    builder.Configuration.GetConnectionString("DefaultConnection")
+    ?? throw new InvalidOperationException(
+        "DefaultConnection chưa được cấu hình.");
 
 builder.Services.AddDbContext<ApplicationDbContext>(
     options =>
@@ -30,17 +32,18 @@ builder.Services.AddDbContext<ApplicationDbContext>(
 // 2. DEPENDENCY INJECTION
 // =========================================================
 
-// Person 1 - Auth / Customer / Vehicle / Category
+// Auth / Customer / Vehicle / Category
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IVehicleService, VehicleService>();
 builder.Services.AddScoped<ICustomerService, CustomerService>();
 builder.Services.AddScoped<ICategoryService, CategoryService>();
 
-// Long - Rental / Contract
+// Rental / Contract
 builder.Services.AddScoped<IRentalService, RentalService>();
 builder.Services.AddScoped<IContractService, ContractService>();
 
-// Hưng - Payment / Operations / Evaluation / Audit
+// Payment / Handover / Return / Extension / Cancellation
+// Evaluation / Audit
 builder.Services.AddScoped<IPaymentService, PaymentService>();
 builder.Services.AddScoped<IHandOverService, HandOverService>();
 builder.Services.AddScoped<IReturnService, ReturnService>();
@@ -55,7 +58,8 @@ builder.Services.AddScoped<IAuditLogService, AuditLogService>();
 
 var jwtKey =
     builder.Configuration["Jwt:Key"]
-    ?? "DefaultSuperSecretKeyForDevelopmentOnly2026";
+    ?? throw new InvalidOperationException(
+        "Jwt:Key chưa được cấu hình.");
 
 var jwtIssuer =
     builder.Configuration["Jwt:Issuer"]
@@ -127,7 +131,7 @@ builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc(
         "v1",
-        new Microsoft.OpenApi.Models.OpenApiInfo
+        new OpenApiInfo
         {
             Title = "BtlThueXe.Api",
             Version = "v1"
@@ -135,45 +139,29 @@ builder.Services.AddSwaggerGen(c =>
 
     c.AddSecurityDefinition(
         "Bearer",
-        new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+        new OpenApiSecurityScheme
         {
             Name = "Authorization",
-
-            Type =
-                Microsoft.OpenApi.Models
-                    .SecuritySchemeType.Http,
-
+            Type = SecuritySchemeType.Http,
             Scheme = "bearer",
             BearerFormat = "JWT",
-
-            In =
-                Microsoft.OpenApi.Models
-                    .ParameterLocation.Header,
-
+            In = ParameterLocation.Header,
             Description = "Nhập JWT token"
         });
 
     c.AddSecurityRequirement(
-        new Microsoft.OpenApi.Models
-            .OpenApiSecurityRequirement
+        new OpenApiSecurityRequirement
         {
             {
-                new Microsoft.OpenApi.Models
-                    .OpenApiSecurityScheme
+                new OpenApiSecurityScheme
                 {
                     Reference =
-                        new Microsoft.OpenApi.Models
-                            .OpenApiReference
+                        new OpenApiReference
                         {
-                            Type =
-                                Microsoft.OpenApi.Models
-                                    .ReferenceType
-                                    .SecurityScheme,
-
+                            Type = ReferenceType.SecurityScheme,
                             Id = "Bearer"
                         }
                 },
-
                 Array.Empty<string>()
             }
         });
@@ -187,9 +175,77 @@ var app = builder.Build();
 
 // =========================================================
 // 8. GLOBAL EXCEPTION HANDLING
+// Dùng middleware có sẵn của ASP.NET Core
 // =========================================================
 
-app.UseMiddleware<GlobalExceptionMiddleware>();
+app.UseExceptionHandler(exceptionHandlerApp =>
+{
+    exceptionHandlerApp.Run(async context =>
+    {
+        var feature =
+            context.Features.Get<IExceptionHandlerFeature>();
+
+        var exception = feature?.Error;
+
+        var statusCode = exception switch
+        {
+            ArgumentNullException =>
+                StatusCodes.Status400BadRequest,
+
+            ArgumentException =>
+                StatusCodes.Status400BadRequest,
+
+            KeyNotFoundException =>
+                StatusCodes.Status404NotFound,
+
+            UnauthorizedAccessException =>
+                StatusCodes.Status403Forbidden,
+
+            InvalidOperationException =>
+                StatusCodes.Status409Conflict,
+
+            _ =>
+                StatusCodes.Status500InternalServerError
+        };
+
+        var error = statusCode switch
+        {
+            StatusCodes.Status400BadRequest =>
+                "Bad Request",
+
+            StatusCodes.Status403Forbidden =>
+                "Forbidden",
+
+            StatusCodes.Status404NotFound =>
+                "Not Found",
+
+            StatusCodes.Status409Conflict =>
+                "Conflict",
+
+            _ =>
+                "Internal Server Error"
+        };
+
+        var message =
+            statusCode == StatusCodes.Status500InternalServerError
+                ? "Đã xảy ra lỗi hệ thống. Vui lòng thử lại sau."
+                : exception?.Message ?? "Đã xảy ra lỗi.";
+
+        context.Response.StatusCode = statusCode;
+        context.Response.ContentType =
+            "application/json; charset=utf-8";
+
+        await context.Response.WriteAsJsonAsync(
+            new
+            {
+                status = statusCode,
+                error,
+                message,
+                path = context.Request.Path.Value,
+                timestamp = DateTime.UtcNow
+            });
+    });
+});
 
 // =========================================================
 // 9. SWAGGER

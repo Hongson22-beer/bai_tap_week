@@ -293,33 +293,25 @@ public class ReturnService : IReturnService
                 });
 
             // =================================================
-            // RETURNED -> COMPLETED
-            // Sau khi tiếp nhận xe thành công, hợp đồng hoàn tất.
+            // RETURNED -> COMPLETED chỉ khi KHÔNG có phí phát sinh.
+            // Nếu có phí, giữ RETURNED để khách/nhân viên thanh toán
+            // PHI_PHAT_SINH; PaymentService sẽ hoàn tất hợp đồng sau.
             // =================================================
-            hopDong.TrangThai =
-                "COMPLETED";
+            if (tongPhiPhatSinh <= 0)
+            {
+                hopDong.TrangThai = "COMPLETED";
 
-            _context.LichSuTrangThaiHopDongs.Add(
-                new LichSuTrangThaiHopDong
-                {
-                    IdHopDong =
-                        hopDong.Id,
-
-                    TrangThaiCu =
-                        "RETURNED",
-
-                    TrangThaiMoi =
-                        "COMPLETED",
-
-                    IdNguoiThayDoi =
-                        currentUserId,
-
-                    LyDo =
-                        "Hoàn tất quy trình trả xe.",
-
-                    ThoiGianThayDoi =
-                        DateTime.UtcNow
-                });
+                _context.LichSuTrangThaiHopDongs.Add(
+                    new LichSuTrangThaiHopDong
+                    {
+                        IdHopDong = hopDong.Id,
+                        TrangThaiCu = "RETURNED",
+                        TrangThaiMoi = "COMPLETED",
+                        IdNguoiThayDoi = currentUserId,
+                        LyDo = "Hoàn tất quy trình trả xe, không có phí phát sinh.",
+                        ThoiGianThayDoi = DateTime.UtcNow
+                    });
+            }
 
             // =================================================
             // AUDIT LOG
@@ -333,7 +325,7 @@ public class ReturnService : IReturnService
                 DuLieuCu =
                     $"Contract={oldContractStatus}; Vehicle={oldVehicleStatus}",
                 DuLieuMoi =
-                    $"Contract=COMPLETED; Vehicle=AVAILABLE; " +
+                    $"Contract={hopDong.TrangThai}; Vehicle=AVAILABLE; " +
                     $"TongPhiPhatSinh={tongPhiPhatSinh}",
                 MoTa =
                     $"Tiếp nhận xe #{xe.Id} trả cho hợp đồng #{hopDong.Id}.",

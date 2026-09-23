@@ -14,6 +14,9 @@ public interface IPaymentService
     Task<PaymentResponse> ProcessWebhookAsync(
         PaymentWebhookRequest request);
 
+    // Nhân viên xử lý hoàn tiền cho giao dịch REFUND_PENDING
+    Task<PaymentResponse> ProcessRefundAsync(int paymentId, int currentUserId);
+
     // Lấy thanh toán theo ID
     Task<PaymentResponse?> GetByIdAsync(int id);
 

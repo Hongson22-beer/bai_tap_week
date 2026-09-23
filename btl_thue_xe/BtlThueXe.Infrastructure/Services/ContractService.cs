@@ -27,7 +27,7 @@ namespace BtlThueXe.Infrastructure.Services
             string? currentUserRole)
         {
            // Đổi từ: ValidateRole(currentUserRole, "NHAN_VIEN");
-ValidateRole(currentUserRole, "NHAN_VIEN", "Staff", "Admin");
+ValidateRole(currentUserRole, "NHAN_VIEN");
 
             var yeuCauThue = await _context.YeuCauThues
                 .AsNoTracking()
@@ -152,6 +152,17 @@ ValidateRole(currentUserRole, "NHAN_VIEN", "Staff", "Admin");
 
             await _context.SaveChangesAsync();
 
+            _context.AuditLogs.Add(new AuditLog
+            {
+                IdNguoiDung = staffUserId,
+                HanhDong = "CONTRACT_CREATED",
+                LoaiDoiTuong = "CONTRACT",
+                IdDoiTuong = hopDong.Id,
+                MoTa = $"Tạo hợp đồng #{hopDong.Id} từ yêu cầu thuê #{hopDong.IdYeuCauThue}.",
+                ThoiGian = DateTime.UtcNow
+            });
+            await _context.SaveChangesAsync();
+
             return MapToResponseDto(hopDong);
         }
 
@@ -239,6 +250,16 @@ ValidateRole(currentUserRole, "NHAN_VIEN", "Staff", "Admin");
 
             _context.LichSuTrangThaiHopDongs.Add(history);
 
+            _context.AuditLogs.Add(new AuditLog
+            {
+                IdNguoiDung = staffUserId,
+                HanhDong = "CONTRACT_SENT",
+                LoaiDoiTuong = "CONTRACT",
+                IdDoiTuong = hopDong.Id,
+                MoTa = "Gửi hợp đồng cho khách hàng.",
+                ThoiGian = DateTime.UtcNow
+            });
+
             await _context.SaveChangesAsync();
 
             return MapToResponseDto(hopDong);
@@ -302,6 +323,16 @@ ValidateRole(currentUserRole, "NHAN_VIEN", "Staff", "Admin");
             };
 
             _context.LichSuTrangThaiHopDongs.Add(history);
+
+            _context.AuditLogs.Add(new AuditLog
+            {
+                IdNguoiDung = currentUserId,
+                HanhDong = "CONTRACT_CONFIRMED",
+                LoaiDoiTuong = "CONTRACT",
+                IdDoiTuong = hopDong.Id,
+                MoTa = "Khách hàng xác nhận hợp đồng.",
+                ThoiGian = DateTime.UtcNow
+            });
 
             await _context.SaveChangesAsync();
 
@@ -378,6 +409,16 @@ ValidateRole(currentUserRole, "NHAN_VIEN", "Staff", "Admin");
             };
 
             _context.LichSuTrangThaiHopDongs.Add(history);
+
+            _context.AuditLogs.Add(new AuditLog
+            {
+                IdNguoiDung = currentUserId,
+                HanhDong = "CONTRACT_REJECTED",
+                LoaiDoiTuong = "CONTRACT",
+                IdDoiTuong = hopDong.Id,
+                MoTa = "Khách hàng từ chối hợp đồng.",
+                ThoiGian = DateTime.UtcNow
+            });
 
             await _context.SaveChangesAsync();
 

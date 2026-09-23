@@ -3,6 +3,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using BtlThueXe.Core.DTOs.Common;
+using BtlThueXe.Core.DTOs.AuditLogs;
+using BtlThueXe.Core.Interfaces;
+using System.Data;
 using BtlThueXe.Core.DTOs.Rentals;
 using BtlThueXe.Core.Services;
 using BtlThueXe.Infrastructure.Data;
@@ -13,10 +16,14 @@ namespace BtlThueXe.Infrastructure.Services
     public class RentalService : IRentalService
     {
         private readonly ApplicationDbContext _context;
+        private readonly IAuditLogService _auditLogService;
 
-        public RentalService(ApplicationDbContext context)
+        public RentalService(
+            ApplicationDbContext context,
+            IAuditLogService auditLogService)
         {
             _context = context;
+            _auditLogService = auditLogService;
         }
 
         #region Helper Methods - Ownership & Role Validations
@@ -100,6 +107,9 @@ namespace BtlThueXe.Infrastructure.Services
                 throw new InvalidOperationException("Tài khoản chưa xác minh CCCD, không thể tạo yêu cầu thuê ONLINE.");
             }
 
+            await using var transaction = await _context.Database
+                .BeginTransactionAsync(IsolationLevel.Serializable);
+
             var xe = await GetAndValidateXeAsync(request.IdXe);
             await CheckAndThrowIfOverlapAsync(xe.Id, request.ThoiGianNhan, request.ThoiGianTraDuKien);
 
@@ -123,6 +133,9 @@ namespace BtlThueXe.Infrastructure.Services
             _context.YeuCauThues.Add(rental);
             await _context.SaveChangesAsync();
 
+            await WriteAuditAsync(currentUserId, rental, "RENTAL_CREATED_ONLINE");
+            await transaction.CommitAsync();
+
             return MapToResponseDto(rental);
         }
 
@@ -136,6 +149,9 @@ namespace BtlThueXe.Infrastructure.Services
             {
                 throw new KeyNotFoundException("Khách hàng không tồn tại.");
             }
+
+            await using var transaction = await _context.Database
+                .BeginTransactionAsync(IsolationLevel.Serializable);
 
             var xe = await GetAndValidateXeAsync(request.IdXe);
             await CheckAndThrowIfOverlapAsync(xe.Id, request.ThoiGianNhan, request.ThoiGianTraDuKien);
@@ -160,6 +176,9 @@ namespace BtlThueXe.Infrastructure.Services
 
             _context.YeuCauThues.Add(rental);
             await _context.SaveChangesAsync();
+
+            await WriteAuditAsync(staffUserId, rental, "RENTAL_CREATED_OFFLINE");
+            await transaction.CommitAsync();
 
             return MapToResponseDto(rental);
         }
@@ -283,6 +302,7 @@ namespace BtlThueXe.Infrastructure.Services
             rental.ThoiGianCapNhat = DateTime.Now;
 
             await _context.SaveChangesAsync();
+            await WriteAuditAsync(staffUserId, rental, "RENTAL_APPROVED");
             return MapToResponseDto(rental);
         }
 
@@ -312,6 +332,7 @@ namespace BtlThueXe.Infrastructure.Services
             rental.ThoiGianCapNhat = DateTime.Now;
 
             await _context.SaveChangesAsync();
+            await WriteAuditAsync(staffUserId, rental, "RENTAL_REJECTED");
             return MapToResponseDto(rental);
         }
 
@@ -341,6 +362,7 @@ namespace BtlThueXe.Infrastructure.Services
             rental.ThoiGianCapNhat = DateTime.Now;
 
             await _context.SaveChangesAsync();
+            await WriteAuditAsync(staffUserId, rental, "RENTAL_CANCELLED");
             return MapToResponseDto(rental);
         }
 
@@ -354,6 +376,18 @@ namespace BtlThueXe.Infrastructure.Services
                 r.TrangThai != "CANCELLED" &&
                 r.ThoiGianNhan < thoiGianTraDuKien &&
                 r.ThoiGianTraDuKien > thoiGianNhan);
+        }
+
+        private async Task WriteAuditAsync(int? userId, YeuCauThue rental, string action)
+        {
+            await _auditLogService.CreateAsync(new CreateAuditLogRequest
+            {
+                IdNguoiDung = userId,
+                HanhDong = action,
+                LoaiDoiTuong = "RENTAL",
+                IdDoiTuong = rental.Id,
+                MoTa = $"Yêu cầu thuê #{rental.Id} - trạng thái {rental.TrangThai}"
+            });
         }
 
         private static RentalResponseDto MapToResponseDto(YeuCauThue rental)

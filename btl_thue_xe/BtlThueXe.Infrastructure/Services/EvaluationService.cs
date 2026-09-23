@@ -1,80 +1,162 @@
-using BtlThueXe.Core.DTOs.Evaluations;
-using BtlThueXe.Core.DTOs.AuditLogs;
-using BtlThueXe.Infrastructure;
+﻿using BtlThueXe.Core.DTOs.Evaluations;
 using BtlThueXe.Core.Interfaces;
 using BtlThueXe.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
-using System.Text.Json;
 
 namespace BtlThueXe.Infrastructure.Services;
 
 public class EvaluationService : IEvaluationService
 {
     private readonly ApplicationDbContext _context;
-    private readonly IAuditLogService _auditLogService;
 
-    public EvaluationService(
-        ApplicationDbContext context,
-        IAuditLogService auditLogService)
+    public EvaluationService(ApplicationDbContext context)
     {
         _context = context;
-        _auditLogService = auditLogService;
     }
 
     // =========================================================
-    // TẠO ĐÁNH GIÁ
+    // KHÁCH HÀNG TẠO ĐÁNH GIÁ
     // =========================================================
     public async Task<EvaluationResponse> CreateAsync(
-        CreateEvaluationRequest request)
+        CreateEvaluationRequest request,
+        int currentUserId)
     {
+        if (request == null)
+            throw new ArgumentNullException(nameof(request));
+
+        if (currentUserId <= 0)
+        {
+            throw new UnauthorizedAccessException(
+                "Không xác định được người dùng.");
+        }
+
         if (request.IdHopDong <= 0)
         {
             throw new ArgumentException(
                 "ID hợp đồng không hợp lệ.");
         }
 
-        if (request.IdKhachHang <= 0)
-        {
-            throw new ArgumentException(
-                "ID khách hàng không hợp lệ.");
-        }
-
-        if (request.IdXe.HasValue &&
-            request.IdXe.Value <= 0)
-        {
-            throw new ArgumentException(
-                "ID xe không hợp lệ.");
-        }
-
         if (request.DiemDanhGia < 1 ||
             request.DiemDanhGia > 5)
         {
             throw new ArgumentException(
-                "Điểm đánh giá phải từ 1 đến 5.");
+                "Điểm đánh giá phải nằm trong khoảng từ 1 đến 5.");
         }
 
-        // Một hợp đồng chỉ được đánh giá một lần
-        var evaluationExists =
-            await _context.DanhGias
-                .AnyAsync(x =>
-                    x.IdHopDong == request.IdHopDong);
+        if (!string.IsNullOrWhiteSpace(request.NhanXet) &&
+            request.NhanXet.Length > 2000)
+        {
+            throw new ArgumentException(
+                "Nhận xét không được vượt quá 2000 ký tự.");
+        }
+
+        // =====================================================
+        // LẤY HỢP ĐỒNG + KHÁCH HÀNG + XE
+        // =====================================================
+        var hopDong = await _context.HopDongs
+            .Include(x => x.IdYeuCauThueNavigation)
+                .ThenInclude(x => x.IdKhachHangNavigation)
+            .Include(x => x.IdYeuCauThueNavigation)
+                .ThenInclude(x => x.IdXeNavigation)
+            .FirstOrDefaultAsync(x =>
+                x.Id == request.IdHopDong);
+
+        if (hopDong == null)
+        {
+            throw new KeyNotFoundException(
+                "Không tìm thấy hợp đồng.");
+        }
+
+        // =====================================================
+        // CHỈ ĐÁNH GIÁ KHI HỢP ĐỒNG COMPLETED
+        // =====================================================
+        if (!string.Equals(
+                hopDong.TrangThai,
+                "COMPLETED",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"Không thể đánh giá khi hợp đồng đang ở trạng thái " +
+                $"{hopDong.TrangThai}. Hợp đồng phải ở COMPLETED.");
+        }
+
+        var yeuCauThue =
+            hopDong.IdYeuCauThueNavigation;
+
+        if (yeuCauThue == null)
+        {
+            throw new InvalidOperationException(
+                "Không tìm thấy yêu cầu thuê của hợp đồng.");
+        }
+
+        var khachHang =
+            yeuCauThue.IdKhachHangNavigation;
+
+        if (khachHang == null)
+        {
+            throw new InvalidOperationException(
+                "Không tìm thấy khách hàng của hợp đồng.");
+        }
+
+        // =====================================================
+        // KIỂM TRA QUYỀN SỞ HỮU
+        //
+        // JWT:
+        // currentUserId = NguoiDung.Id
+        //
+        // DanhGia:
+        // IdKhachHang = KhachHang.Id
+        //
+        // Vì vậy KHÔNG gán:
+        // IdKhachHang = currentUserId
+        // =====================================================
+        if (khachHang.IdNguoiDung != currentUserId)
+        {
+            throw new UnauthorizedAccessException(
+                "Bạn không có quyền đánh giá hợp đồng này.");
+        }
+
+        // =====================================================
+        // MỖI HỢP ĐỒNG CHỈ ĐƯỢC ĐÁNH GIÁ 1 LẦN
+        // =====================================================
+        bool evaluationExists =
+            await _context.DanhGias.AnyAsync(x =>
+                x.IdHopDong == hopDong.Id);
 
         if (evaluationExists)
         {
-            throw new ArgumentException(
+            throw new InvalidOperationException(
                 "Hợp đồng này đã được đánh giá.");
         }
 
+        // =====================================================
+        // LẤY XE THỰC TẾ TỪ HỢP ĐỒNG
+        // Không tin IdXe client gửi lên.
+        // =====================================================
+        int idXe = yeuCauThue.IdXe;
+
+        if (request.IdXe.HasValue &&
+            request.IdXe.Value > 0 &&
+            request.IdXe.Value != idXe)
+        {
+            throw new InvalidOperationException(
+                "Xe đánh giá không đúng với xe của hợp đồng.");
+        }
+
+        // =====================================================
+        // TẠO ĐÁNH GIÁ
+        // =====================================================
         var evaluation = new DanhGia
         {
             IdHopDong =
-                request.IdHopDong,
+                hopDong.Id,
 
+            // Đây là KhachHang.Id, KHÔNG phải NguoiDung.Id
             IdKhachHang =
-                request.IdKhachHang,
+                khachHang.Id,
 
             IdXe =
-                request.IdXe,
+                idXe,
 
             DiemDanhGia =
                 request.DiemDanhGia,
@@ -88,68 +170,21 @@ public class EvaluationService : IEvaluationService
                 DateTime.UtcNow
         };
 
-        // =====================================================
-        // LƯU ĐÁNH GIÁ
-        // =====================================================
         _context.DanhGias.Add(evaluation);
 
-        await _context.SaveChangesAsync();
-
-        // =====================================================
-        // GHI AUDIT LOG TỰ ĐỘNG
-        // =====================================================
-        var duLieuMoi = JsonSerializer.Serialize(new
+        _context.AuditLogs.Add(new AuditLog
         {
-            idHopDong =
-                evaluation.IdHopDong,
-
-            idKhachHang =
-                evaluation.IdKhachHang,
-
-            idXe =
-                evaluation.IdXe,
-
-            diemDanhGia =
-                evaluation.DiemDanhGia,
-
-            nhanXet =
-                evaluation.NhanXet
+            IdNguoiDung = currentUserId,
+            HanhDong = "CREATE_EVALUATION",
+            LoaiDoiTuong = "HOP_DONG",
+            IdDoiTuong = hopDong.Id,
+            DuLieuCu = null,
+            DuLieuMoi = $"DiemDanhGia={request.DiemDanhGia}; IdXe={idXe}",
+            MoTa = $"Khách hàng đánh giá hợp đồng #{hopDong.Id}.",
+            ThoiGian = DateTime.UtcNow
         });
 
-        await _auditLogService.CreateAsync(
-            new CreateAuditLogRequest
-            {
-                /*
-                 * IdKhachHang KHÔNG phải IdNguoiDung.
-                 * Sau khi merge Auth/RBAC sẽ lấy
-                 * id_nguoi_dung từ JWT.
-                 */
-                IdNguoiDung =
-                    null,
-
-                HanhDong =
-                    "EVALUATION_CREATED",
-
-                LoaiDoiTuong =
-                    "EVALUATION",
-
-                IdDoiTuong =
-                    evaluation.Id,
-
-                DuLieuCu =
-                    null,
-
-                DuLieuMoi =
-                    duLieuMoi,
-
-                MoTa =
-                    $"Khách hàng #{evaluation.IdKhachHang} " +
-                    $"đánh giá hợp đồng #{evaluation.IdHopDong} " +
-                    $"{evaluation.DiemDanhGia} sao",
-
-                IpAddress =
-                    null
-            });
+        await _context.SaveChangesAsync();
 
         return MapToResponse(evaluation);
     }
@@ -157,8 +192,7 @@ public class EvaluationService : IEvaluationService
     // =========================================================
     // LẤY ĐÁNH GIÁ THEO ID
     // =========================================================
-    public async Task<EvaluationResponse?> GetByIdAsync(
-        int id)
+    public async Task<EvaluationResponse?> GetByIdAsync(int id)
     {
         if (id <= 0)
             return null;
@@ -166,20 +200,19 @@ public class EvaluationService : IEvaluationService
         var evaluation =
             await _context.DanhGias
                 .AsNoTracking()
-                .FirstOrDefaultAsync(
-                    x => x.Id == id);
+                .FirstOrDefaultAsync(x =>
+                    x.Id == id);
 
-        if (evaluation == null)
-            return null;
-
-        return MapToResponse(evaluation);
+        return evaluation == null
+            ? null
+            : MapToResponse(evaluation);
     }
 
     // =========================================================
     // LẤY ĐÁNH GIÁ THEO HỢP ĐỒNG
     // =========================================================
-    public async Task<EvaluationResponse?>
-        GetByContractIdAsync(int idHopDong)
+    public async Task<EvaluationResponse?> GetByContractIdAsync(
+        int idHopDong)
     {
         if (idHopDong <= 0)
             return null;
@@ -187,26 +220,24 @@ public class EvaluationService : IEvaluationService
         var evaluation =
             await _context.DanhGias
                 .AsNoTracking()
-                .FirstOrDefaultAsync(
-                    x => x.IdHopDong == idHopDong);
+                .FirstOrDefaultAsync(x =>
+                    x.IdHopDong == idHopDong);
 
-        if (evaluation == null)
-            return null;
-
-        return MapToResponse(evaluation);
+        return evaluation == null
+            ? null
+            : MapToResponse(evaluation);
     }
 
     // =========================================================
-    // DANH SÁCH TẤT CẢ ĐÁNH GIÁ
+    // LẤY TẤT CẢ ĐÁNH GIÁ
     // =========================================================
-    public async Task<List<EvaluationResponse>>
-        GetAllAsync()
+    public async Task<List<EvaluationResponse>> GetAllAsync()
     {
         var evaluations =
             await _context.DanhGias
                 .AsNoTracking()
-                .OrderByDescending(
-                    x => x.ThoiGianTao)
+                .OrderByDescending(x =>
+                    x.ThoiGianTao)
                 .ToListAsync();
 
         return evaluations
@@ -222,26 +253,13 @@ public class EvaluationService : IEvaluationService
     {
         return new EvaluationResponse
         {
-            Id =
-                evaluation.Id,
-
-            IdHopDong =
-                evaluation.IdHopDong,
-
-            IdKhachHang =
-                evaluation.IdKhachHang,
-
-            IdXe =
-                evaluation.IdXe,
-
-            DiemDanhGia =
-                evaluation.DiemDanhGia,
-
-            NhanXet =
-                evaluation.NhanXet,
-
-            ThoiGianTao =
-                evaluation.ThoiGianTao
+            Id = evaluation.Id,
+            IdHopDong = evaluation.IdHopDong,
+            IdKhachHang = evaluation.IdKhachHang,
+            IdXe = evaluation.IdXe,
+            DiemDanhGia = evaluation.DiemDanhGia,
+            NhanXet = evaluation.NhanXet,
+            ThoiGianTao = evaluation.ThoiGianTao
         };
     }
 }

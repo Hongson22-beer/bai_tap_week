@@ -5,7 +5,8 @@ namespace BtlThueXe.Core.Interfaces;
 public interface IHandOverService
 {
     Task<HandoverResponse> CreateAsync(
-        CreateHandoverRequest request);
+        CreateHandoverRequest request,
+        int currentUserId);
 
     Task<HandoverResponse?> GetByIdAsync(int id);
 

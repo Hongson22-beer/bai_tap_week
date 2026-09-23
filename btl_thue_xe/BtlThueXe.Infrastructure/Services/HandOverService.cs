@@ -1,6 +1,4 @@
 using BtlThueXe.Core.DTOs.Handovers;
-using BtlThueXe.Core.DTOs.AuditLogs;
-using BtlThueXe.Infrastructure;
 using BtlThueXe.Core.Interfaces;
 using BtlThueXe.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
@@ -10,134 +8,271 @@ namespace BtlThueXe.Infrastructure.Services;
 public class HandOverService : IHandOverService
 {
     private readonly ApplicationDbContext _context;
-    private readonly IAuditLogService _auditLogService;
 
-    public HandOverService(
-        ApplicationDbContext context,
-        IAuditLogService auditLogService)
+    public HandOverService(ApplicationDbContext context)
     {
         _context = context;
-        _auditLogService = auditLogService;
     }
 
+    // =========================================================
+    // TẠO BÀN GIAO XE
+    // =========================================================
     public async Task<HandoverResponse> CreateAsync(
-        CreateHandoverRequest request)
+        CreateHandoverRequest request,
+        int currentUserId)
     {
+        if (request == null)
+            throw new ArgumentNullException(nameof(request));
+
+        if (currentUserId <= 0)
+            throw new UnauthorizedAccessException(
+                "Không xác định được nhân viên.");
+
         if (request.IdHopDong <= 0)
-        {
             throw new ArgumentException(
                 "ID hợp đồng không hợp lệ.");
-        }
-
-        if (request.IdXe <= 0)
-        {
-            throw new ArgumentException(
-                "ID xe không hợp lệ.");
-        }
 
         if (request.SoKm < 0)
-        {
             throw new ArgumentException(
-                "Số km không được âm.");
-        }
+                "Số km không được nhỏ hơn 0.");
 
         if (request.MucNhienLieu < 0 ||
             request.MucNhienLieu > 100)
         {
             throw new ArgumentException(
-                "Mức nhiên liệu phải từ 0 đến 100.");
+                "Mức nhiên liệu phải nằm trong khoảng từ 0 đến 100.");
         }
 
-        var handoverExists =
-            await _context.BanGiaoXes
-                .AnyAsync(x =>
-                    x.IdHopDong == request.IdHopDong);
+        // =====================================================
+        // LẤY HỢP ĐỒNG + YÊU CẦU THUÊ + XE
+        // =====================================================
+        var hopDong = await _context.HopDongs
+            .Include(x => x.IdYeuCauThueNavigation)
+                .ThenInclude(x => x.IdXeNavigation)
+            .FirstOrDefaultAsync(x =>
+                x.Id == request.IdHopDong);
 
-        if (handoverExists)
+        if (hopDong == null)
+            throw new KeyNotFoundException(
+                "Không tìm thấy hợp đồng.");
+
+        // =====================================================
+        // CHỈ BÀN GIAO KHI READY_FOR_PICKUP
+        // =====================================================
+        if (!string.Equals(
+                hopDong.TrangThai,
+                "READY_FOR_PICKUP",
+                StringComparison.OrdinalIgnoreCase))
         {
-            throw new ArgumentException(
-                "Hợp đồng này đã được bàn giao xe.");
+            throw new InvalidOperationException(
+                $"Không thể bàn giao xe khi hợp đồng đang ở trạng thái " +
+                $"{hopDong.TrangThai}. Hợp đồng phải ở READY_FOR_PICKUP.");
         }
 
-        var handover = new BanGiaoXe
+        // =====================================================
+        // MỖI HỢP ĐỒNG CHỈ ĐƯỢC BÀN GIAO 1 LẦN
+        // =====================================================
+        bool existed = await _context.BanGiaoXes
+            .AnyAsync(x =>
+                x.IdHopDong == request.IdHopDong);
+
+        if (existed)
         {
-            IdHopDong = request.IdHopDong,
-
-            IdXe = request.IdXe,
-
-            SoKm = request.SoKm,
-
-            MucNhienLieu = request.MucNhienLieu,
-
-            TinhTrangXe =
-                string.IsNullOrWhiteSpace(
-                    request.TinhTrangXe)
-                    ? null
-                    : request.TinhTrangXe.Trim(),
-
-            GhiChu =
-                string.IsNullOrWhiteSpace(
-                    request.GhiChu)
-                    ? null
-                    : request.GhiChu.Trim(),
-
-            IdNhanVien = request.IdNhanVien,
-
-            ThoiGianGiao = DateTime.UtcNow
-        };
+            throw new InvalidOperationException(
+                "Hợp đồng này đã có thông tin bàn giao xe.");
+        }
 
         // =====================================================
-        // LƯU BÀN GIAO XE
+        // LẤY XE TỪ YÊU CẦU THUÊ
         // =====================================================
-        _context.BanGiaoXes.Add(handover);
+        var yeuCauThue =
+            hopDong.IdYeuCauThueNavigation;
 
-        await _context.SaveChangesAsync();
+        if (yeuCauThue == null)
+        {
+            throw new InvalidOperationException(
+                "Không tìm thấy yêu cầu thuê của hợp đồng.");
+        }
+
+        var xe = yeuCauThue.IdXeNavigation;
+
+        if (xe == null)
+        {
+            throw new InvalidOperationException(
+                "Không tìm thấy xe của hợp đồng.");
+        }
+
+        // Không tin IdXe do client gửi lên.
+        // Nếu client gửi IdXe thì phải đúng xe của hợp đồng.
+        if (request.IdXe > 0 &&
+            request.IdXe != xe.Id)
+        {
+            throw new InvalidOperationException(
+                "Xe bàn giao không đúng với xe của hợp đồng.");
+        }
 
         // =====================================================
-        // GHI AUDIT LOG TỰ ĐỘNG
+        // XE PHẢI RESERVED
         // =====================================================
-        await _auditLogService.CreateAsync(
-            new CreateAuditLogRequest
+        if (!string.Equals(
+                xe.TrangThai,
+                "RESERVED",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"Không thể bàn giao xe vì xe đang ở trạng thái " +
+                $"{xe.TrangThai}. Xe phải ở trạng thái RESERVED.");
+        }
+
+        var now = DateTime.UtcNow;
+
+        await using var transaction =
+            await _context.Database.BeginTransactionAsync();
+
+        try
+        {
+            // =================================================
+            // TẠO BÀN GIAO
+            // =================================================
+            var handover = new BanGiaoXe
             {
-                // Tạm thời dùng nhân viên trong request.
-                // Sau khi merge JWT/RBAC sẽ lấy user từ token.
-                IdNguoiDung = request.IdNhanVien,
+                IdHopDong = hopDong.Id,
 
-                HanhDong = "HANDOVER_CREATED",
+                // Lấy xe thực tế từ hợp đồng
+                IdXe = xe.Id,
 
-                LoaiDoiTuong = "HANDOVER",
+                // Lấy nhân viên từ JWT,
+                // không sử dụng IdNhanVien client gửi lên
+                IdNhanVien = currentUserId,
 
-                IdDoiTuong = handover.Id,
+                SoKm = request.SoKm,
 
-                DuLieuCu = null,
+                MucNhienLieu = request.MucNhienLieu,
 
-                DuLieuMoi =
-                    $"{{\"idHopDong\":{handover.IdHopDong}," +
-                    $"\"idXe\":{handover.IdXe}," +
-                    $"\"soKm\":{handover.SoKm}," +
-                    $"\"mucNhienLieu\":{handover.MucNhienLieu}}}",
+                TinhTrangXe =
+                    string.IsNullOrWhiteSpace(request.TinhTrangXe)
+                        ? null
+                        : request.TinhTrangXe.Trim(),
 
-                MoTa =
-                    $"Bàn giao xe #{handover.IdXe} " +
-                    $"cho hợp đồng #{handover.IdHopDong}",
+                GhiChu =
+                    string.IsNullOrWhiteSpace(request.GhiChu)
+                        ? null
+                        : request.GhiChu.Trim(),
 
-                IpAddress = null
+                ThoiGianGiao = now
+            };
+
+            _context.BanGiaoXes.Add(handover);
+
+            // =================================================
+            // CONTRACT
+            // READY_FOR_PICKUP -> IN_PROGRESS
+            // =================================================
+            string? oldContractStatus =
+                hopDong.TrangThai;
+
+            hopDong.TrangThai =
+                "IN_PROGRESS";
+
+            hopDong.ThoiGianNhanThucTe =
+                now;
+
+            _context.LichSuTrangThaiHopDongs.Add(
+                new LichSuTrangThaiHopDong
+                {
+                    IdHopDong = hopDong.Id,
+
+                    TrangThaiCu =
+                        oldContractStatus,
+
+                    TrangThaiMoi =
+                        "IN_PROGRESS",
+
+                    IdNguoiThayDoi =
+                        currentUserId,
+
+                    LyDo =
+                        "Nhân viên bàn giao xe cho khách hàng.",
+
+                    ThoiGianThayDoi =
+                        now
+                });
+
+            // =================================================
+            // VEHICLE
+            // RESERVED -> RENTING
+            // =================================================
+            string? oldVehicleStatus =
+                xe.TrangThai;
+
+            xe.TrangThai =
+                "RENTING";
+
+            _context.LichSuTrangThaiXes.Add(
+                new LichSuTrangThaiXe
+                {
+                    IdXe = xe.Id,
+
+                    TrangThaiCu =
+                        oldVehicleStatus,
+
+                    TrangThaiMoi =
+                        "RENTING",
+
+                    IdNguoiThayDoi =
+                        currentUserId,
+
+                    LyDo =
+                        $"Bàn giao xe cho hợp đồng #{hopDong.Id}.",
+
+                    ThoiGianThayDoi =
+                        now
+                });
+
+            // =================================================
+            // AUDIT LOG
+            // =================================================
+            _context.AuditLogs.Add(new AuditLog
+            {
+                IdNguoiDung = currentUserId,
+                HanhDong = "HANDOVER_VEHICLE",
+                LoaiDoiTuong = "HOP_DONG",
+                IdDoiTuong = hopDong.Id,
+                DuLieuCu = $"Contract={oldContractStatus}; Vehicle={oldVehicleStatus}",
+                DuLieuMoi = "Contract=IN_PROGRESS; Vehicle=RENTING",
+                MoTa = $"Bàn giao xe #{xe.Id} cho hợp đồng #{hopDong.Id}.",
+                ThoiGian = now
             });
 
-        return MapToResponse(handover);
+            // =================================================
+            // LƯU TOÀN BỘ TRONG TRANSACTION
+            // =================================================
+            await _context.SaveChangesAsync();
+
+            await transaction.CommitAsync();
+
+            return MapToResponse(handover);
+        }
+        catch
+        {
+            await transaction.RollbackAsync();
+            throw;
+        }
     }
 
-    public async Task<HandoverResponse?>
-        GetByIdAsync(int id)
+    // =========================================================
+    // GET BY ID
+    // =========================================================
+    public async Task<HandoverResponse?> GetByIdAsync(
+        int id)
     {
         if (id <= 0)
             return null;
 
-        var handover =
-            await _context.BanGiaoXes
-                .AsNoTracking()
-                .FirstOrDefaultAsync(
-                    x => x.Id == id);
+        var handover = await _context.BanGiaoXes
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x =>
+                x.Id == id);
 
         if (handover == null)
             return null;
@@ -145,17 +280,19 @@ public class HandOverService : IHandOverService
         return MapToResponse(handover);
     }
 
-    public async Task<HandoverResponse?>
-        GetByContractIdAsync(int idHopDong)
+    // =========================================================
+    // GET BY CONTRACT
+    // =========================================================
+    public async Task<HandoverResponse?> GetByContractIdAsync(
+        int idHopDong)
     {
         if (idHopDong <= 0)
             return null;
 
-        var handover =
-            await _context.BanGiaoXes
-                .AsNoTracking()
-                .FirstOrDefaultAsync(
-                    x => x.IdHopDong == idHopDong);
+        var handover = await _context.BanGiaoXes
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x =>
+                x.IdHopDong == idHopDong);
 
         if (handover == null)
             return null;
@@ -163,6 +300,9 @@ public class HandOverService : IHandOverService
         return MapToResponse(handover);
     }
 
+    // =========================================================
+    // ENTITY -> DTO
+    // =========================================================
     private static HandoverResponse MapToResponse(
         BanGiaoXe handover)
     {
@@ -170,11 +310,14 @@ public class HandOverService : IHandOverService
         {
             Id = handover.Id,
 
-            IdHopDong = handover.IdHopDong,
+            IdHopDong =
+                handover.IdHopDong,
 
-            IdXe = handover.IdXe,
+            IdXe =
+                handover.IdXe,
 
-            SoKm = handover.SoKm,
+            SoKm =
+                handover.SoKm,
 
             MucNhienLieu =
                 handover.MucNhienLieu,

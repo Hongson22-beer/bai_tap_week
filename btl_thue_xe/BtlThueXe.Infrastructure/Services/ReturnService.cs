@@ -1,333 +1,442 @@
 using BtlThueXe.Core.DTOs.Returns;
-using BtlThueXe.Core.DTOs.AuditLogs;
-using BtlThueXe.Infrastructure;
 using BtlThueXe.Core.Interfaces;
 using BtlThueXe.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
-using System.Text.Json;
 
 namespace BtlThueXe.Infrastructure.Services;
 
 public class ReturnService : IReturnService
 {
     private readonly ApplicationDbContext _context;
-    private readonly IAuditLogService _auditLogService;
 
-    public ReturnService(
-        ApplicationDbContext context,
-        IAuditLogService auditLogService)
+    public ReturnService(ApplicationDbContext context)
     {
         _context = context;
-        _auditLogService = auditLogService;
     }
 
     // =========================================================
     // TẠO PHIẾU TRẢ XE
     // =========================================================
     public async Task<ReturnResponse> CreateAsync(
-        CreateReturnRequest request)
+        CreateReturnRequest request,
+        int currentUserId)
     {
+        if (request == null)
+            throw new ArgumentNullException(nameof(request));
+
+        if (currentUserId <= 0)
+            throw new UnauthorizedAccessException(
+                "Không xác định được nhân viên.");
+
         if (request.IdHopDong <= 0)
-        {
             throw new ArgumentException(
                 "ID hợp đồng không hợp lệ.");
-        }
-
-        if (request.IdXe <= 0)
-        {
-            throw new ArgumentException(
-                "ID xe không hợp lệ.");
-        }
 
         if (request.SoKm < 0)
-        {
             throw new ArgumentException(
-                "Số km không được âm.");
-        }
+                "Số km không được nhỏ hơn 0.");
 
         if (request.MucNhienLieu < 0 ||
             request.MucNhienLieu > 100)
         {
             throw new ArgumentException(
-                "Mức nhiên liệu phải từ 0 đến 100.");
+                "Mức nhiên liệu phải nằm trong khoảng từ 0 đến 100.");
         }
 
-        if (request.PhiTraMuon < 0)
+        if (request.PhiTraMuon < 0 ||
+            request.PhiPhatSinh < 0)
         {
             throw new ArgumentException(
-                "Phí trả muộn không được âm.");
+                "Phí phát sinh không được nhỏ hơn 0.");
         }
 
-        if (request.PhiPhatSinh < 0)
+        // =====================================================
+        // LẤY HỢP ĐỒNG + YÊU CẦU THUÊ + XE
+        // =====================================================
+        var hopDong = await _context.HopDongs
+            .Include(x => x.IdYeuCauThueNavigation)
+                .ThenInclude(x => x.IdXeNavigation)
+            .FirstOrDefaultAsync(x =>
+                x.Id == request.IdHopDong);
+
+        if (hopDong == null)
         {
-            throw new ArgumentException(
-                "Phí phát sinh không được âm.");
+            throw new KeyNotFoundException(
+                "Không tìm thấy hợp đồng.");
         }
 
-        // Một hợp đồng chỉ được trả xe một lần
-        var returnExists = await _context.TraXes
-            .AnyAsync(x =>
-                x.IdHopDong == request.IdHopDong);
-
-        if (returnExists)
+        // =====================================================
+        // CHỈ ĐƯỢC TRẢ XE KHI HỢP ĐỒNG ĐANG IN_PROGRESS
+        // =====================================================
+        if (!string.Equals(
+                hopDong.TrangThai,
+                "IN_PROGRESS",
+                StringComparison.OrdinalIgnoreCase))
         {
-            throw new ArgumentException(
-                "Hợp đồng này đã được trả xe.");
+            throw new InvalidOperationException(
+                $"Không thể trả xe khi hợp đồng đang ở trạng thái " +
+                $"{hopDong.TrangThai}. Hợp đồng phải ở IN_PROGRESS.");
         }
 
-        // Kiểm tra hợp đồng đã bàn giao xe
+        var yeuCauThue =
+            hopDong.IdYeuCauThueNavigation;
+
+        if (yeuCauThue == null)
+        {
+            throw new InvalidOperationException(
+                "Không tìm thấy yêu cầu thuê của hợp đồng.");
+        }
+
+        var xe = yeuCauThue.IdXeNavigation;
+
+        if (xe == null)
+        {
+            throw new InvalidOperationException(
+                "Không tìm thấy xe của hợp đồng.");
+        }
+
+        // =====================================================
+        // KHÔNG TIN IdXe TỪ CLIENT
+        // =====================================================
+        if (request.IdXe > 0 &&
+            request.IdXe != xe.Id)
+        {
+            throw new InvalidOperationException(
+                "Xe trả không đúng với xe của hợp đồng.");
+        }
+
+        // =====================================================
+        // XE PHẢI ĐANG RENTING
+        // =====================================================
+        if (!string.Equals(
+                xe.TrangThai,
+                "RENTING",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"Không thể trả xe vì xe đang ở trạng thái " +
+                $"{xe.TrangThai}. Xe phải ở trạng thái RENTING.");
+        }
+
+        // =====================================================
+        // PHẢI CÓ BẢN GHI BÀN GIAO
+        // =====================================================
         var handover = await _context.BanGiaoXes
             .AsNoTracking()
             .FirstOrDefaultAsync(x =>
-                x.IdHopDong == request.IdHopDong);
+                x.IdHopDong == hopDong.Id);
 
         if (handover == null)
         {
-            throw new ArgumentException(
-                "Hợp đồng chưa được bàn giao xe.");
+            throw new InvalidOperationException(
+                "Hợp đồng chưa có thông tin bàn giao xe.");
         }
 
-        // Xe trả phải đúng xe đã bàn giao
-        if (handover.IdXe != request.IdXe)
-        {
-            throw new ArgumentException(
-                "Xe trả không khớp với xe đã bàn giao.");
-        }
-
-        // Số km khi trả >= số km lúc giao
+        // =====================================================
+        // KM TRẢ KHÔNG THỂ NHỎ HƠN KM LÚC GIAO
+        // =====================================================
         if (request.SoKm < handover.SoKm)
         {
-            throw new ArgumentException(
-                $"Số km khi trả không được nhỏ hơn số km lúc bàn giao ({handover.SoKm} km).");
+            throw new InvalidOperationException(
+                $"Số km khi trả ({request.SoKm}) không thể nhỏ hơn " +
+                $"số km lúc bàn giao ({handover.SoKm}).");
         }
 
-        DateTime thoiGianTraDuKien =
-            ToUtc(request.ThoiGianTraDuKien);
+        // =====================================================
+        // KHÔNG CHO TRẢ XE 2 LẦN
+        // =====================================================
+        bool returnExisted = await _context.TraXes
+            .AnyAsync(x =>
+                x.IdHopDong == hopDong.Id);
 
-        DateTime thoiGianTraThucTe =
-            request.ThoiGianTraThucTe.HasValue
-                ? ToUtc(request.ThoiGianTraThucTe.Value)
-                : DateTime.UtcNow;
+        if (returnExisted)
+        {
+            throw new InvalidOperationException(
+                "Hợp đồng này đã có thông tin trả xe.");
+        }
 
-        decimal tongPhi =
+        var now =
+            request.ThoiGianTraThucTe ?? DateTime.UtcNow;
+
+        decimal tongPhiPhatSinh =
             request.PhiTraMuon +
             request.PhiPhatSinh;
 
-        var returnEntity = new TraXe
+        await using var transaction =
+            await _context.Database.BeginTransactionAsync();
+
+        try
         {
-            IdHopDong = request.IdHopDong,
-
-            IdXe = request.IdXe,
-
-            ThoiGianTraDuKien =
-                thoiGianTraDuKien,
-
-            ThoiGianTraThucTe =
-                thoiGianTraThucTe,
-
-            SoKm = request.SoKm,
-
-            MucNhienLieu =
-                request.MucNhienLieu,
-
-            TinhTrangXe =
-                string.IsNullOrWhiteSpace(
-                    request.TinhTrangXe)
-                    ? null
-                    : request.TinhTrangXe.Trim(),
-
-            GhiChu =
-                string.IsNullOrWhiteSpace(
-                    request.GhiChu)
-                    ? null
-                    : request.GhiChu.Trim(),
-
-            PhiTraMuon =
-                request.PhiTraMuon,
-
-            PhiPhatSinh =
-                request.PhiPhatSinh,
-
-            TongPhiPhatSinh =
-                tongPhi,
-
-            IdNhanVien =
-                request.IdNhanVien,
-
-            TrangThai =
-                "COMPLETED",
-
-            ThoiGianTao =
-                DateTime.UtcNow
-        };
-
-        // =====================================================
-        // LƯU PHIẾU TRẢ XE
-        // =====================================================
-        _context.TraXes.Add(returnEntity);
-
-        await _context.SaveChangesAsync();
-
-        // =====================================================
-        // GHI AUDIT LOG TỰ ĐỘNG
-        // =====================================================
-        var duLieuMoi = JsonSerializer.Serialize(new
-        {
-            idHopDong = returnEntity.IdHopDong,
-            idXe = returnEntity.IdXe,
-            soKm = returnEntity.SoKm,
-            mucNhienLieu = returnEntity.MucNhienLieu,
-            phiTraMuon = returnEntity.PhiTraMuon,
-            phiPhatSinh = returnEntity.PhiPhatSinh,
-            tongPhiPhatSinh = returnEntity.TongPhiPhatSinh,
-            trangThai = returnEntity.TrangThai
-        });
-
-        await _auditLogService.CreateAsync(
-            new CreateAuditLogRequest
+            // =================================================
+            // TẠO PHIẾU TRẢ XE
+            // =================================================
+            var returnEntity = new TraXe
             {
-                IdNguoiDung =
-                    request.IdNhanVien,
+                IdHopDong = hopDong.Id,
 
-                HanhDong =
-                    "RETURN_CREATED",
+                // Xe thực tế lấy từ hợp đồng
+                IdXe = xe.Id,
 
-                LoaiDoiTuong =
-                    "RETURN",
+                // Nhân viên lấy từ JWT
+                IdNhanVien = currentUserId,
 
-                IdDoiTuong =
-                    returnEntity.Id,
+                ThoiGianTraDuKien =
+                    request.ThoiGianTraDuKien,
 
-                DuLieuCu =
-                    null,
+                ThoiGianTraThucTe =
+                    now,
 
-                DuLieuMoi =
-                    duLieuMoi,
+                SoKm =
+                    request.SoKm,
 
-                MoTa =
-                    $"Trả xe #{returnEntity.IdXe} " +
-                    $"cho hợp đồng #{returnEntity.IdHopDong}",
+                MucNhienLieu =
+                    request.MucNhienLieu,
 
-                IpAddress =
-                    null
+                TinhTrangXe =
+                    string.IsNullOrWhiteSpace(request.TinhTrangXe)
+                        ? null
+                        : request.TinhTrangXe.Trim(),
+
+                GhiChu =
+                    string.IsNullOrWhiteSpace(request.GhiChu)
+                        ? null
+                        : request.GhiChu.Trim(),
+
+                PhiTraMuon =
+                    request.PhiTraMuon,
+
+                PhiPhatSinh =
+                    request.PhiPhatSinh,
+
+                TongPhiPhatSinh =
+                    tongPhiPhatSinh,
+
+                TrangThai =
+                    "COMPLETED",
+
+                ThoiGianTao =
+                    DateTime.UtcNow
+            };
+
+            _context.TraXes.Add(returnEntity);
+
+            // =================================================
+            // CẬP NHẬT HỢP ĐỒNG
+            // IN_PROGRESS -> RETURNED
+            // =================================================
+            string? oldContractStatus =
+                hopDong.TrangThai;
+
+            hopDong.TrangThai =
+                "RETURNED";
+
+            hopDong.ThoiGianTraThucTe =
+                now;
+
+            _context.LichSuTrangThaiHopDongs.Add(
+                new LichSuTrangThaiHopDong
+                {
+                    IdHopDong =
+                        hopDong.Id,
+
+                    TrangThaiCu =
+                        oldContractStatus,
+
+                    TrangThaiMoi =
+                        "RETURNED",
+
+                    IdNguoiThayDoi =
+                        currentUserId,
+
+                    LyDo =
+                        "Nhân viên đã tiếp nhận xe trả.",
+
+                    ThoiGianThayDoi =
+                        DateTime.UtcNow
+                });
+
+            // =================================================
+            // XE RENTING -> AVAILABLE
+            // =================================================
+            string? oldVehicleStatus =
+                xe.TrangThai;
+
+            xe.TrangThai =
+                "AVAILABLE";
+
+            _context.LichSuTrangThaiXes.Add(
+                new LichSuTrangThaiXe
+                {
+                    IdXe =
+                        xe.Id,
+
+                    TrangThaiCu =
+                        oldVehicleStatus,
+
+                    TrangThaiMoi =
+                        "AVAILABLE",
+
+                    IdNguoiThayDoi =
+                        currentUserId,
+
+                    LyDo =
+                        $"Khách hàng trả xe của hợp đồng #{hopDong.Id}.",
+
+                    ThoiGianThayDoi =
+                        DateTime.UtcNow
+                });
+
+            // =================================================
+            // RETURNED -> COMPLETED
+            //
+            // Sau khi tiếp nhận xe thành công, hợp đồng hoàn tất.
+            // =================================================
+            hopDong.TrangThai =
+                "COMPLETED";
+
+            _context.LichSuTrangThaiHopDongs.Add(
+                new LichSuTrangThaiHopDong
+                {
+                    IdHopDong =
+                        hopDong.Id,
+
+                    TrangThaiCu =
+                        "RETURNED",
+
+                    TrangThaiMoi =
+                        "COMPLETED",
+
+                    IdNguoiThayDoi =
+                        currentUserId,
+
+                    LyDo =
+                        "Hoàn tất quy trình trả xe.",
+
+                    ThoiGianThayDoi =
+                        DateTime.UtcNow
+                });
+
+            // =================================================
+            // AUDIT LOG
+            // =================================================
+            _context.AuditLogs.Add(new AuditLog
+            {
+                IdNguoiDung = currentUserId,
+                HanhDong = "RETURN_VEHICLE",
+                LoaiDoiTuong = "HOP_DONG",
+                IdDoiTuong = hopDong.Id,
+                DuLieuCu = $"Contract={oldContractStatus}; Vehicle={oldVehicleStatus}",
+                DuLieuMoi = $"Contract=COMPLETED; Vehicle=AVAILABLE; TongPhiPhatSinh={tongPhiPhatSinh}",
+                MoTa = $"Tiếp nhận xe #{xe.Id} trả cho hợp đồng #{hopDong.Id}.",
+                ThoiGian = DateTime.UtcNow
             });
 
-        return MapToResponse(returnEntity);
+            // =================================================
+            // SAVE
+            // =================================================
+            await _context.SaveChangesAsync();
+
+            await transaction.CommitAsync();
+
+            return MapToResponse(returnEntity);
+        }
+        catch
+        {
+            await transaction.RollbackAsync();
+            throw;
+        }
     }
 
     // =========================================================
-    // LẤY PHIẾU TRẢ XE THEO ID
+    // GET RETURN BY ID
     // =========================================================
-    public async Task<ReturnResponse?>
-        GetByIdAsync(int id)
+    public async Task<ReturnResponse?> GetByIdAsync(
+        int id)
     {
         if (id <= 0)
             return null;
 
-        var returnEntity =
-            await _context.TraXes
-                .AsNoTracking()
-                .FirstOrDefaultAsync(
-                    x => x.Id == id);
+        var entity = await _context.TraXes
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x =>
+                x.Id == id);
 
-        if (returnEntity == null)
-            return null;
-
-        return MapToResponse(returnEntity);
+        return entity == null
+            ? null
+            : MapToResponse(entity);
     }
 
     // =========================================================
-    // LẤY PHIẾU TRẢ XE THEO HỢP ĐỒNG
+    // GET RETURN BY CONTRACT
     // =========================================================
-    public async Task<ReturnResponse?>
-        GetByContractIdAsync(int idHopDong)
+    public async Task<ReturnResponse?> GetByContractIdAsync(
+        int idHopDong)
     {
         if (idHopDong <= 0)
             return null;
 
-        var returnEntity =
-            await _context.TraXes
-                .AsNoTracking()
-                .FirstOrDefaultAsync(
-                    x => x.IdHopDong == idHopDong);
+        var entity = await _context.TraXes
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x =>
+                x.IdHopDong == idHopDong);
 
-        if (returnEntity == null)
-            return null;
-
-        return MapToResponse(returnEntity);
+        return entity == null
+            ? null
+            : MapToResponse(entity);
     }
 
     // =========================================================
-    // CHUYỂN DATETIME SANG UTC
-    // =========================================================
-    private static DateTime ToUtc(DateTime value)
-    {
-        if (value.Kind == DateTimeKind.Utc)
-        {
-            return value;
-        }
-
-        if (value.Kind == DateTimeKind.Local)
-        {
-            return value.ToUniversalTime();
-        }
-
-        return DateTime.SpecifyKind(
-            value,
-            DateTimeKind.Utc);
-    }
-
-    // =========================================================
-    // ENTITY -> RESPONSE DTO
+    // ENTITY -> DTO
     // =========================================================
     private static ReturnResponse MapToResponse(
-        TraXe returnEntity)
+        TraXe entity)
     {
         return new ReturnResponse
         {
-            Id = returnEntity.Id,
+            Id =
+                entity.Id,
 
             IdHopDong =
-                returnEntity.IdHopDong,
+                entity.IdHopDong,
 
             IdXe =
-                returnEntity.IdXe,
+                entity.IdXe,
 
             ThoiGianTraDuKien =
-                returnEntity.ThoiGianTraDuKien,
+                entity.ThoiGianTraDuKien,
 
             ThoiGianTraThucTe =
-                returnEntity.ThoiGianTraThucTe,
+                entity.ThoiGianTraThucTe,
 
             SoKm =
-                returnEntity.SoKm,
+                entity.SoKm,
 
             MucNhienLieu =
-                returnEntity.MucNhienLieu,
+                entity.MucNhienLieu,
 
             TinhTrangXe =
-                returnEntity.TinhTrangXe,
+                entity.TinhTrangXe,
 
             GhiChu =
-                returnEntity.GhiChu,
+                entity.GhiChu,
 
             PhiTraMuon =
-                returnEntity.PhiTraMuon,
+                entity.PhiTraMuon,
 
             PhiPhatSinh =
-                returnEntity.PhiPhatSinh,
+                entity.PhiPhatSinh,
 
             TongPhiPhatSinh =
-                returnEntity.TongPhiPhatSinh,
+                entity.TongPhiPhatSinh,
 
             IdNhanVien =
-                returnEntity.IdNhanVien,
+                entity.IdNhanVien,
 
             TrangThai =
-                returnEntity.TrangThai,
+                entity.TrangThai,
 
             ThoiGianTao =
-                returnEntity.ThoiGianTao
+                entity.ThoiGianTao
         };
     }
 }

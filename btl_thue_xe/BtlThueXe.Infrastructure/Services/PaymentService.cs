@@ -1,6 +1,5 @@
-using BtlThueXe.Core.DTOs.Payments;
 using BtlThueXe.Core.DTOs.AuditLogs;
-using BtlThueXe.Infrastructure;
+using BtlThueXe.Core.DTOs.Payments;
 using BtlThueXe.Core.Interfaces;
 using BtlThueXe.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
@@ -24,14 +23,44 @@ public class PaymentService : IPaymentService
     // TẠO THANH TOÁN
     // =========================================================
     public async Task<PaymentResponse> CreateAsync(
-        CreatePaymentRequest request)
+        CreatePaymentRequest request,
+        int currentUserId,
+        string? currentUserRole)
     {
+        if (request == null)
+            throw new ArgumentNullException(nameof(request));
+
+        if (currentUserId <= 0)
+            throw new UnauthorizedAccessException(
+                "Không xác định được người dùng.");
+
+        if (request.IdHopDong <= 0)
+            throw new ArgumentException(
+                "ID hợp đồng không hợp lệ.");
+
+        if (request.SoTien <= 0)
+            throw new ArgumentException(
+                "Số tiền thanh toán phải lớn hơn 0.");
+
+        if (string.IsNullOrWhiteSpace(request.LoaiThanhToan))
+            throw new ArgumentException(
+                "Loại thanh toán không được để trống.");
+
+        if (string.IsNullOrWhiteSpace(request.PhuongThuc))
+            throw new ArgumentException(
+                "Phương thức thanh toán không được để trống.");
+
+        var loaiThanhToan =
+            request.LoaiThanhToan.Trim().ToUpperInvariant();
+
+        var phuongThuc =
+            request.PhuongThuc.Trim().ToUpperInvariant();
+
         string[] validTypes =
         {
             "TIEN_THUE",
             "TIEN_COC",
-            "PHI_PHAT_SINH",
-            "HOAN_TIEN"
+            "PHI_PHAT_SINH"
         };
 
         string[] validMethods =
@@ -41,55 +70,140 @@ public class PaymentService : IPaymentService
             "MO_PHONG"
         };
 
-        string loaiThanhToan =
-            request.LoaiThanhToan.Trim().ToUpperInvariant();
-
-        string phuongThuc =
-            request.PhuongThuc.Trim().ToUpperInvariant();
-
         if (!validTypes.Contains(loaiThanhToan))
-        {
             throw new ArgumentException(
                 "Loại thanh toán không hợp lệ.");
-        }
 
         if (!validMethods.Contains(phuongThuc))
-        {
             throw new ArgumentException(
                 "Phương thức thanh toán không hợp lệ.");
-        }
 
-        if (request.SoTien < 0)
+        // =====================================================
+        // TÌM HỢP ĐỒNG
+        // =====================================================
+
+        var hopDong = await _context.HopDongs
+            .Include(x => x.IdYeuCauThueNavigation)
+                .ThenInclude(x => x.IdKhachHangNavigation)
+            .Include(x => x.IdYeuCauThueNavigation)
+                .ThenInclude(x => x.IdXeNavigation)
+            .FirstOrDefaultAsync(x =>
+                x.Id == request.IdHopDong);
+
+        if (hopDong == null)
+            throw new KeyNotFoundException(
+                "Không tìm thấy hợp đồng.");
+
+        // =====================================================
+        // KHÁCH CHỈ ĐƯỢC THANH TOÁN HỢP ĐỒNG CỦA MÌNH
+        // =====================================================
+
+        if (IsCustomer(currentUserRole))
         {
-            throw new ArgumentException(
-                "Số tiền thanh toán không được âm.");
+            var customer =
+                hopDong.IdYeuCauThueNavigation
+                    ?.IdKhachHangNavigation;
+
+            if (customer == null)
+                throw new InvalidOperationException(
+                    "Không xác định được khách hàng của hợp đồng.");
+
+            if (customer.IdNguoiDung != currentUserId)
+                throw new UnauthorizedAccessException(
+                    "Bạn không có quyền thanh toán hợp đồng này.");
         }
 
-        if (request.IdHopDong <= 0)
+        // =====================================================
+        // KIỂM TRA TRẠNG THÁI HỢP ĐỒNG
+        // =====================================================
+
+        if (loaiThanhToan == "TIEN_THUE" ||
+            loaiThanhToan == "TIEN_COC")
         {
-            throw new ArgumentException(
-                "ID hợp đồng không hợp lệ.");
+            if (!string.Equals(
+                    hopDong.TrangThai,
+                    "CUSTOMER_CONFIRMED",
+                    StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    "Chỉ được thanh toán tiền thuê hoặc tiền cọc " +
+                    "khi hợp đồng ở trạng thái CUSTOMER_CONFIRMED.");
+            }
         }
 
-        /*
-         * Sau khi merge phần Người 2 sẽ kiểm tra
-         * hợp đồng trực tiếp bằng DbSet<HopDong>.
-         */
+        if (loaiThanhToan == "PHI_PHAT_SINH")
+        {
+            bool validState =
+                string.Equals(
+                    hopDong.TrangThai,
+                    "IN_PROGRESS",
+                    StringComparison.OrdinalIgnoreCase)
+                ||
+                string.Equals(
+                    hopDong.TrangThai,
+                    "RETURNED",
+                    StringComparison.OrdinalIgnoreCase);
+
+            if (!validState)
+                throw new InvalidOperationException(
+                    "Hợp đồng chưa ở trạng thái cho phép " +
+                    "thanh toán phí phát sinh.");
+        }
+
+        // =====================================================
+        // CHỐNG GIAO DỊCH PENDING TRÙNG
+        // =====================================================
+
+        bool hasPending =
+            await _context.ThanhToans.AnyAsync(x =>
+                x.IdHopDong == request.IdHopDong &&
+                x.LoaiThanhToan == loaiThanhToan &&
+                x.TrangThai == "PENDING");
+
+        if (hasPending)
+            throw new InvalidOperationException(
+                $"Đã tồn tại giao dịch {loaiThanhToan} " +
+                "đang chờ xử lý.");
+
+        // =====================================================
+        // MÃ GIAO DỊCH
+        // =====================================================
+
+        var maGiaoDich =
+            string.IsNullOrWhiteSpace(request.MaGiaoDich)
+                ? null
+                : request.MaGiaoDich.Trim();
+
+        if (!string.IsNullOrWhiteSpace(maGiaoDich))
+        {
+            bool existed =
+                await _context.ThanhToans.AnyAsync(x =>
+                    x.MaGiaoDich == maGiaoDich);
+
+            if (existed)
+                throw new InvalidOperationException(
+                    "Mã giao dịch đã tồn tại.");
+        }
+        else
+        {
+            maGiaoDich =
+                $"TX-{DateTime.UtcNow:yyyyMMddHHmmss}-" +
+                Guid.NewGuid()
+                    .ToString("N")[..8]
+                    .ToUpperInvariant();
+        }
+
+        // =====================================================
+        // TẠO PAYMENT
+        // =====================================================
 
         var payment = new ThanhToan
         {
             IdHopDong = request.IdHopDong,
-
             LoaiThanhToan = loaiThanhToan,
-
             SoTien = request.SoTien,
-
             PhuongThuc = phuongThuc,
-
-            MaGiaoDich =
-                string.IsNullOrWhiteSpace(request.MaGiaoDich)
-                    ? null
-                    : request.MaGiaoDich.Trim(),
+            MaGiaoDich = maGiaoDich,
 
             GhiChu =
                 string.IsNullOrWhiteSpace(request.GhiChu)
@@ -97,17 +211,11 @@ public class PaymentService : IPaymentService
                     : request.GhiChu.Trim(),
 
             TrangThai = "PENDING",
-
             ThoiGianThanhToan = null
         };
 
-        /*
-         * TIEN_MAT và MO_PHONG:
-         * coi như thanh toán thành công ngay.
-         *
-         * CHUYEN_KHOAN:
-         * giữ trạng thái PENDING.
-         */
+        // Bản demo:
+        // tiền mặt / mô phỏng coi như thanh toán thành công ngay.
         if (phuongThuc == "TIEN_MAT" ||
             phuongThuc == "MO_PHONG")
         {
@@ -115,81 +223,191 @@ public class PaymentService : IPaymentService
             payment.ThoiGianThanhToan = DateTime.UtcNow;
         }
 
-        // =====================================================
-        // LƯU THANH TOÁN
-        // =====================================================
         _context.ThanhToans.Add(payment);
 
         await _context.SaveChangesAsync();
 
         // =====================================================
-        // GHI AUDIT LOG TỰ ĐỘNG
+        // NẾU THANH TOÁN THÀNH CÔNG
+        // KIỂM TRA ĐÃ ĐỦ TIỀN THUÊ + CỌC CHƯA
         // =====================================================
-        await _auditLogService.CreateAsync(
-            new CreateAuditLogRequest
-            {
-                // Tạm thời chưa lấy user từ JWT.
-                // Sau khi merge Auth/RBAC sẽ bổ sung.
-                IdNguoiDung = null,
 
-                HanhDong = "PAYMENT_CREATED",
+        if (payment.TrangThai == "PAID")
+        {
+            await UpdateContractAfterPaymentAsync(
+                hopDong,
+                currentUserId);
+        }
 
-                LoaiDoiTuong = "PAYMENT",
+        await _context.SaveChangesAsync();
 
-                IdDoiTuong = payment.Id,
+        // =====================================================
+        // AUDIT
+        // =====================================================
 
-                DuLieuCu = null,
-
-                DuLieuMoi =
-                    $"{{\"idHopDong\":{payment.IdHopDong}," +
-                    $"\"loaiThanhToan\":\"{payment.LoaiThanhToan}\"," +
-                    $"\"soTien\":{payment.SoTien}," +
-                    $"\"phuongThuc\":\"{payment.PhuongThuc}\"," +
-                    $"\"trangThai\":\"{payment.TrangThai}\"}}",
-
-                MoTa =
-                    $"Tạo thanh toán cho hợp đồng #{payment.IdHopDong}",
-
-                IpAddress = null
-            });
+        await WriteAuditAsync(
+            currentUserId,
+            payment,
+            payment.TrangThai == "PAID"
+                ? "PAYMENT_PAID"
+                : "PAYMENT_CREATED");
 
         return MapToResponse(payment);
     }
 
     // =========================================================
-    // LẤY THANH TOÁN THEO ID
+    // WEBHOOK THANH TOÁN
     // =========================================================
-    public async Task<PaymentResponse?> GetByIdAsync(int id)
+
+    public async Task<PaymentResponse> ProcessWebhookAsync(
+        PaymentWebhookRequest request)
+    {
+        if (request == null)
+            throw new ArgumentNullException(nameof(request));
+
+        if (string.IsNullOrWhiteSpace(request.MaGiaoDich))
+            throw new ArgumentException(
+                "Mã giao dịch không được để trống.");
+
+        if (string.IsNullOrWhiteSpace(request.TrangThai))
+            throw new ArgumentException(
+                "Trạng thái không được để trống.");
+
+        var status =
+            request.TrangThai.Trim().ToUpperInvariant();
+
+        if (status != "PAID" &&
+            status != "FAILED")
+        {
+            throw new ArgumentException(
+                "Trạng thái webhook chỉ được là PAID hoặc FAILED.");
+        }
+
+        var payment =
+            await _context.ThanhToans
+                .FirstOrDefaultAsync(x =>
+                    x.MaGiaoDich ==
+                    request.MaGiaoDich.Trim());
+
+        if (payment == null)
+            throw new KeyNotFoundException(
+                "Không tìm thấy giao dịch.");
+
+        if (!string.Equals(
+                payment.PhuongThuc,
+                "CHUYEN_KHOAN",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                "Webhook chỉ xử lý giao dịch chuyển khoản.");
+        }
+
+        // Webhook gọi lại cùng trạng thái -> không xử lý lại.
+        if (string.Equals(
+                payment.TrangThai,
+                status,
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return MapToResponse(payment);
+        }
+
+        if (!string.Equals(
+                payment.TrangThai,
+                "PENDING",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"Không thể chuyển thanh toán từ " +
+                $"{payment.TrangThai} sang {status}.");
+        }
+
+        payment.TrangThai = status;
+
+        if (status == "PAID")
+            payment.ThoiGianThanhToan = DateTime.UtcNow;
+
+        await _context.SaveChangesAsync();
+
+        // =====================================================
+        // NẾU WEBHOOK BÁO PAID
+        // =====================================================
+
+        if (status == "PAID")
+        {
+            var hopDong =
+                await _context.HopDongs
+                    .Include(x =>
+                        x.IdYeuCauThueNavigation)
+                        .ThenInclude(x =>
+                            x.IdKhachHangNavigation)
+                    .Include(x =>
+                        x.IdYeuCauThueNavigation)
+                        .ThenInclude(x =>
+                            x.IdXeNavigation)
+                    .FirstOrDefaultAsync(x =>
+                        x.Id == payment.IdHopDong);
+
+            if (hopDong == null)
+                throw new KeyNotFoundException(
+                    "Không tìm thấy hợp đồng của giao dịch.");
+
+            await UpdateContractAfterPaymentAsync(
+                hopDong,
+                null);
+
+            await _context.SaveChangesAsync();
+        }
+
+        await WriteAuditAsync(
+            null,
+            payment,
+            status == "PAID"
+                ? "PAYMENT_WEBHOOK_PAID"
+                : "PAYMENT_WEBHOOK_FAILED");
+
+        return MapToResponse(payment);
+    }
+
+    // =========================================================
+    // LẤY PAYMENT THEO ID
+    // =========================================================
+
+    public async Task<PaymentResponse?> GetByIdAsync(
+        int id)
     {
         if (id <= 0)
             return null;
 
-        var payment = await _context.ThanhToans
-            .AsNoTracking()
-            .FirstOrDefaultAsync(x => x.Id == id);
+        var payment =
+            await _context.ThanhToans
+                .AsNoTracking()
+                .FirstOrDefaultAsync(x =>
+                    x.Id == id);
 
-        if (payment == null)
-            return null;
-
-        return MapToResponse(payment);
+        return payment == null
+            ? null
+            : MapToResponse(payment);
     }
 
     // =========================================================
-    // LẤY DANH SÁCH THANH TOÁN THEO HỢP ĐỒNG
+    // LẤY PAYMENT THEO HỢP ĐỒNG
     // =========================================================
+
     public async Task<List<PaymentResponse>>
-        GetByContractIdAsync(int idHopDong)
+        GetByContractIdAsync(
+            int idHopDong)
     {
         if (idHopDong <= 0)
-        {
             return new List<PaymentResponse>();
-        }
 
-        var payments = await _context.ThanhToans
-            .AsNoTracking()
-            .Where(x => x.IdHopDong == idHopDong)
-            .OrderByDescending(x => x.Id)
-            .ToListAsync();
+        var payments =
+            await _context.ThanhToans
+                .AsNoTracking()
+                .Where(x =>
+                    x.IdHopDong == idHopDong)
+                .OrderByDescending(x =>
+                    x.Id)
+                .ToListAsync();
 
         return payments
             .Select(MapToResponse)
@@ -197,29 +415,217 @@ public class PaymentService : IPaymentService
     }
 
     // =========================================================
-    // ENTITY -> RESPONSE DTO
+    // KIỂM TRA THANH TOÁN ĐỦ TIỀN THUÊ + TIỀN CỌC
     // =========================================================
+
+    private async Task UpdateContractAfterPaymentAsync(
+        HopDong hopDong,
+        int? currentUserId)
+    {
+        // Chỉ xử lý bước chuẩn bị giao xe ở trạng thái này.
+        if (!string.Equals(
+                hopDong.TrangThai,
+                "CUSTOMER_CONFIRMED",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        decimal paidRent =
+            await _context.ThanhToans
+                .Where(x =>
+                    x.IdHopDong == hopDong.Id &&
+                    x.LoaiThanhToan == "TIEN_THUE" &&
+                    x.TrangThai == "PAID")
+                .SumAsync(x =>
+                    (decimal?)x.SoTien)
+                ?? 0m;
+
+        decimal paidDeposit =
+            await _context.ThanhToans
+                .Where(x =>
+                    x.IdHopDong == hopDong.Id &&
+                    x.LoaiThanhToan == "TIEN_COC" &&
+                    x.TrangThai == "PAID")
+                .SumAsync(x =>
+                    (decimal?)x.SoTien)
+                ?? 0m;
+
+        bool rentPaid =
+            paidRent >= hopDong.TienThue;
+
+        bool depositPaid =
+            paidDeposit >= hopDong.TienCoc;
+
+        if (!rentPaid || !depositPaid)
+            return;
+
+        var yeuCauThue =
+            hopDong.IdYeuCauThueNavigation;
+
+        if (yeuCauThue == null)
+            throw new InvalidOperationException(
+                "Hợp đồng không có yêu cầu thuê.");
+
+        var xe =
+            yeuCauThue.IdXeNavigation;
+
+        if (xe == null)
+            throw new InvalidOperationException(
+                "Không tìm thấy xe của hợp đồng.");
+
+        if (!string.Equals(
+                xe.TrangThai,
+                "AVAILABLE",
+                StringComparison.OrdinalIgnoreCase)
+            &&
+            !string.Equals(
+                xe.TrangThai,
+                "RESERVED",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                $"Xe đang ở trạng thái {xe.TrangThai}, " +
+                "không thể chuẩn bị bàn giao.");
+        }
+
+        var now = DateTime.UtcNow;
+
+        // =====================================================
+        // CONTRACT:
+        // CUSTOMER_CONFIRMED -> PAID
+        // =====================================================
+
+        hopDong.TrangThai = "PAID";
+
+        _context.LichSuTrangThaiHopDongs.Add(
+            new LichSuTrangThaiHopDong
+            {
+                IdHopDong = hopDong.Id,
+                TrangThaiCu = "CUSTOMER_CONFIRMED",
+                TrangThaiMoi = "PAID",
+                IdNguoiThayDoi = currentUserId,
+                LyDo =
+                    "Đã thanh toán đủ tiền thuê và tiền cọc.",
+                ThoiGianThayDoi = now
+            });
+
+        // =====================================================
+        // VEHICLE:
+        // AVAILABLE -> RESERVED
+        // =====================================================
+
+        if (!string.Equals(
+                xe.TrangThai,
+                "RESERVED",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            var oldVehicleStatus =
+                xe.TrangThai;
+
+            xe.TrangThai = "RESERVED";
+
+            _context.LichSuTrangThaiXes.Add(
+                new LichSuTrangThaiXe
+                {
+                    IdXe = xe.Id,
+                    TrangThaiCu = oldVehicleStatus,
+                    TrangThaiMoi = "RESERVED",
+                    IdNguoiThayDoi = currentUserId,
+                    LyDo =
+                        $"Hợp đồng #{hopDong.Id} đã thanh toán đủ.",
+                    ThoiGianThayDoi = now
+                });
+        }
+
+        // =====================================================
+        // CONTRACT:
+        // PAID -> READY_FOR_PICKUP
+        // =====================================================
+
+        hopDong.TrangThai =
+            "READY_FOR_PICKUP";
+
+        _context.LichSuTrangThaiHopDongs.Add(
+            new LichSuTrangThaiHopDong
+            {
+                IdHopDong = hopDong.Id,
+                TrangThaiCu = "PAID",
+                TrangThaiMoi =
+                    "READY_FOR_PICKUP",
+                IdNguoiThayDoi =
+                    currentUserId,
+                LyDo =
+                    "Hợp đồng đã sẵn sàng bàn giao xe.",
+                ThoiGianThayDoi =
+                    now
+            });
+    }
+
+    // =========================================================
+    // KIỂM TRA ROLE
+    // =========================================================
+
+    private static bool IsCustomer(
+        string? role)
+    {
+        return string.Equals(
+            role,
+            "KHACH_HANG",
+            StringComparison.OrdinalIgnoreCase);
+    }
+
+    // =========================================================
+    // AUDIT
+    // =========================================================
+
+    private async Task WriteAuditAsync(
+        int? userId,
+        ThanhToan payment,
+        string action)
+    {
+        await _auditLogService.CreateAsync(
+            new CreateAuditLogRequest
+            {
+                IdNguoiDung = userId,
+
+                HanhDong = action,
+
+                LoaiDoiTuong =
+                    "PAYMENT",
+
+                IdDoiTuong =
+                    payment.Id,
+
+                MoTa =
+                    $"Thanh toán #{payment.Id} - " +
+                    $"Hợp đồng #{payment.IdHopDong} - " +
+                    $"Trạng thái {payment.TrangThai}"
+            });
+    }
+
+    // =========================================================
+    // ENTITY -> RESPONSE
+    // =========================================================
+
     private static PaymentResponse MapToResponse(
         ThanhToan payment)
     {
         return new PaymentResponse
         {
             Id = payment.Id,
-
             IdHopDong = payment.IdHopDong,
-
-            LoaiThanhToan = payment.LoaiThanhToan,
-
+            LoaiThanhToan =
+                payment.LoaiThanhToan,
             SoTien = payment.SoTien,
-
-            PhuongThuc = payment.PhuongThuc,
-
-            MaGiaoDich = payment.MaGiaoDich,
-
-            TrangThai = payment.TrangThai,
-
-            GhiChu = payment.GhiChu,
-
+            PhuongThuc =
+                payment.PhuongThuc,
+            MaGiaoDich =
+                payment.MaGiaoDich,
+            TrangThai =
+                payment.TrangThai,
+            GhiChu =
+                payment.GhiChu,
             ThoiGianThanhToan =
                 payment.ThoiGianThanhToan
         };

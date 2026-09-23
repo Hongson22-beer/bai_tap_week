@@ -1,11 +1,12 @@
-using BtlThueXe.Core.DTOs.AuditLogs;
 using BtlThueXe.Core.Interfaces;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace BtlThueXe.Api.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[Authorize(Roles = "ADMIN")]
 public class AuditLogsController : ControllerBase
 {
     private readonly IAuditLogService _auditLogService;
@@ -16,29 +17,10 @@ public class AuditLogsController : ControllerBase
         _auditLogService = auditLogService;
     }
 
-    [HttpPost]
-    public async Task<IActionResult> Create(
-        [FromBody] CreateAuditLogRequest request)
-    {
-        try
-        {
-            var result =
-                await _auditLogService.CreateAsync(request);
-
-            return CreatedAtAction(
-                nameof(GetById),
-                new { id = result.Id },
-                result);
-        }
-        catch (ArgumentException ex)
-        {
-            return BadRequest(new
-            {
-                message = ex.Message
-            });
-        }
-    }
-
+    // =====================================================
+    // ADMIN XEM TOÀN BỘ AUDIT LOG
+    // GET /api/AuditLogs
+    // =====================================================
     [HttpGet]
     public async Task<IActionResult> GetAll()
     {
@@ -48,6 +30,10 @@ public class AuditLogsController : ControllerBase
         return Ok(result);
     }
 
+    // =====================================================
+    // ADMIN XEM AUDIT LOG THEO ID
+    // GET /api/AuditLogs/1
+    // =====================================================
     [HttpGet("{id:long}")]
     public async Task<IActionResult> GetById(long id)
     {
@@ -58,13 +44,18 @@ public class AuditLogsController : ControllerBase
         {
             return NotFound(new
             {
-                message = "Không tìm thấy audit log."
+                message =
+                    "Không tìm thấy audit log."
             });
         }
 
         return Ok(result);
     }
 
+    // =====================================================
+    // ADMIN XEM AUDIT LOG THEO NGƯỜI DÙNG
+    // GET /api/AuditLogs/user/1
+    // =====================================================
     [HttpGet("user/{idNguoiDung:int}")]
     public async Task<IActionResult> GetByUser(
         int idNguoiDung)

@@ -8,49 +8,84 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 
 AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
+
 var builder = WebApplication.CreateBuilder(args);
 
 // 1. Kết nối PostgreSQL
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+var connectionString =
+    builder.Configuration.GetConnectionString("DefaultConnection");
+
 builder.Services.AddDbContext<ApplicationDbContext>(options =>
     options.UseNpgsql(connectionString));
 
 // 2. Đăng ký Services Dependency Injection
+
+// Person 1 - Auth / Customer / Vehicle / Category
 builder.Services.AddScoped<IAuthService, AuthService>();
 builder.Services.AddScoped<IVehicleService, VehicleService>();
 builder.Services.AddScoped<ICustomerService, CustomerService>();
 builder.Services.AddScoped<ICategoryService, CategoryService>();
-builder.Services.AddScoped<
-    BtlThueXe.Core.Services.IRentalService,
-    BtlThueXe.Infrastructure.Services.RentalService
->();
-builder.Services.AddScoped<
-    BtlThueXe.Core.Services.IContractService,
-    BtlThueXe.Infrastructure.Services.ContractService
->();
-// 3. Cấu hình JWT Bearer
-var jwtKey = builder.Configuration["Jwt:Key"] ?? "DefaultSuperSecretKeyForDevelopmentOnly2026";
-var jwtIssuer = builder.Configuration["Jwt:Issuer"] ?? "BtlThueXeApi";
-var jwtAudience = builder.Configuration["Jwt:Audience"] ?? "BtlThueXeClient";
 
-builder.Services.AddAuthentication(options =>
-{
-    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
-    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
-})
-.AddJwtBearer(options =>
-{
-    options.TokenValidationParameters = new TokenValidationParameters
+// Long - Rental / Contract
+builder.Services.AddScoped<
+    IRentalService,
+    RentalService
+>();
+
+builder.Services.AddScoped<
+    IContractService,
+    ContractService
+>();
+
+// Hưng - Payment / Operations / Evaluation / Audit
+builder.Services.AddScoped<IPaymentService, PaymentService>();
+builder.Services.AddScoped<IHandOverService, HandOverService>();
+builder.Services.AddScoped<IReturnService, ReturnService>();
+builder.Services.AddScoped<IExtensionService, ExtensionService>();
+builder.Services.AddScoped<ICancellationService, CancellationService>();
+builder.Services.AddScoped<IEvaluationService, EvaluationService>();
+builder.Services.AddScoped<IAuditLogService, AuditLogService>();
+
+// 3. Cấu hình JWT Bearer
+var jwtKey =
+    builder.Configuration["Jwt:Key"]
+    ?? "DefaultSuperSecretKeyForDevelopmentOnly2026";
+
+var jwtIssuer =
+    builder.Configuration["Jwt:Issuer"]
+    ?? "BtlThueXeApi";
+
+var jwtAudience =
+    builder.Configuration["Jwt:Audience"]
+    ?? "BtlThueXeClient";
+
+builder.Services
+    .AddAuthentication(options =>
     {
-        ValidateIssuer = true,
-        ValidateAudience = true,
-        ValidateLifetime = true,
-        ValidateIssuerSigningKey = true,
-        ValidIssuer = jwtIssuer,
-        ValidAudience = jwtAudience,
-        IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
-    };
-});
+        options.DefaultAuthenticateScheme =
+            JwtBearerDefaults.AuthenticationScheme;
+
+        options.DefaultChallengeScheme =
+            JwtBearerDefaults.AuthenticationScheme;
+    })
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters =
+            new TokenValidationParameters
+            {
+                ValidateIssuer = true,
+                ValidateAudience = true,
+                ValidateLifetime = true,
+                ValidateIssuerSigningKey = true,
+
+                ValidIssuer = jwtIssuer,
+                ValidAudience = jwtAudience,
+
+                IssuerSigningKey =
+                    new SymmetricSecurityKey(
+                        Encoding.UTF8.GetBytes(jwtKey))
+            };
+    });
 
 builder.Services.AddAuthorization();
 
@@ -59,59 +94,63 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowAll", policy =>
     {
-        policy.AllowAnyOrigin()
-              .AllowAnyMethod()
-              .AllowAnyHeader();
+        policy
+            .AllowAnyOrigin()
+            .AllowAnyMethod()
+            .AllowAnyHeader();
     });
 });
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 
-// 5. Cấu hình Swagger kèm nút Authorize (sử dụng fully-qualified name để tránh lỗi using)
+// 5. Swagger + JWT Authorize
 builder.Services.AddSwaggerGen(c =>
 {
-    c.SwaggerDoc("v1", new Microsoft.OpenApi.Models.OpenApiInfo 
-    { 
-        Title = "BtlThueXe.Api", 
-        Version = "v1" 
-    });
-
-   c.AddSecurityDefinition("Bearer", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
-{
-    Name = "Authorization",
-    Type = Microsoft.OpenApi.Models.SecuritySchemeType.Http,
-    Scheme = "bearer",
-    BearerFormat = "JWT",
-    In = Microsoft.OpenApi.Models.ParameterLocation.Header,
-    Description = "Nhập JWT token"
-});
-    c.AddSecurityRequirement(new Microsoft.OpenApi.Models.OpenApiSecurityRequirement
-    {
+    c.SwaggerDoc(
+        "v1",
+        new Microsoft.OpenApi.Models.OpenApiInfo
         {
-            new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+            Title = "BtlThueXe.Api",
+            Version = "v1"
+        });
+
+    c.AddSecurityDefinition(
+        "Bearer",
+        new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+        {
+            Name = "Authorization",
+            Type = Microsoft.OpenApi.Models.SecuritySchemeType.Http,
+            Scheme = "bearer",
+            BearerFormat = "JWT",
+            In = Microsoft.OpenApi.Models.ParameterLocation.Header,
+            Description = "Nhập JWT token"
+        });
+
+    c.AddSecurityRequirement(
+        new Microsoft.OpenApi.Models.OpenApiSecurityRequirement
+        {
             {
-                Reference = new Microsoft.OpenApi.Models.OpenApiReference
+                new Microsoft.OpenApi.Models.OpenApiSecurityScheme
                 {
-                    Type = Microsoft.OpenApi.Models.ReferenceType.SecurityScheme,
-                    Id = "Bearer"
-                }
-            },
-            Array.Empty<string>()
-        }
-    });
+                    Reference =
+                        new Microsoft.OpenApi.Models.OpenApiReference
+                        {
+                            Type =
+                                Microsoft.OpenApi.Models
+                                    .ReferenceType.SecurityScheme,
+
+                            Id = "Bearer"
+                        }
+                },
+
+                Array.Empty<string>()
+            }
+        });
 });
 
 var app = builder.Build();
-using (var scope = app.Services.CreateScope())
-{
-    var service = scope.ServiceProvider
-        .GetRequiredService<BtlThueXe.Core.Services.IRentalService>();
 
-    Console.WriteLine("======================================");
-    Console.WriteLine("IRentalService RESOLVE THANH CONG!");
-    Console.WriteLine("======================================");
-}
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
@@ -119,6 +158,7 @@ if (app.Environment.IsDevelopment())
 }
 
 app.UseHttpsRedirection();
+
 app.UseCors("AllowAll");
 
 app.UseAuthentication();

@@ -4,15 +4,21 @@ namespace BtlThueXe.Core.Interfaces;
 
 public interface ICancellationService
 {
+    // Khách hàng tạo yêu cầu hủy hợp đồng
     Task<CancellationResponse> CreateAsync(
-        CreateCancellationRequest request);
+        CreateCancellationRequest request,
+        int currentUserId);
 
-    Task<CancellationResponse?> GetByIdAsync(int id);
-
-    Task<List<CancellationResponse>> GetByContractIdAsync(
-        int idHopDong);
-
+    // Nhân viên duyệt / từ chối yêu cầu hủy
     Task<CancellationResponse> ProcessAsync(
         int id,
-        ProcessCancellationRequest request);
+        ProcessCancellationRequest request,
+        int currentUserId);
+
+    // Xem yêu cầu hủy theo ID
+    Task<CancellationResponse?> GetByIdAsync(int id);
+
+    // Xem các yêu cầu hủy của một hợp đồng
+    Task<List<CancellationResponse>> GetByContractIdAsync(
+        int idHopDong);
 }

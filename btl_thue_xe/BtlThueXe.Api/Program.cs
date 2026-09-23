@@ -1,4 +1,5 @@
 using System.Text;
+using BtlThueXe.Api.Middlewares;
 using BtlThueXe.Core.Interfaces;
 using BtlThueXe.Core.Services;
 using BtlThueXe.Infrastructure.Data;
@@ -7,18 +8,27 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 
-AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
+AppContext.SetSwitch(
+    "Npgsql.EnableLegacyTimestampBehavior",
+    true);
 
 var builder = WebApplication.CreateBuilder(args);
 
-// 1. Kết nối PostgreSQL
+// =========================================================
+// 1. KẾT NỐI POSTGRESQL
+// =========================================================
+
 var connectionString =
-    builder.Configuration.GetConnectionString("DefaultConnection");
+    builder.Configuration
+        .GetConnectionString("DefaultConnection");
 
-builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseNpgsql(connectionString));
+builder.Services.AddDbContext<ApplicationDbContext>(
+    options =>
+        options.UseNpgsql(connectionString));
 
-// 2. Đăng ký Services Dependency Injection
+// =========================================================
+// 2. DEPENDENCY INJECTION
+// =========================================================
 
 // Person 1 - Auth / Customer / Vehicle / Category
 builder.Services.AddScoped<IAuthService, AuthService>();
@@ -27,15 +37,8 @@ builder.Services.AddScoped<ICustomerService, CustomerService>();
 builder.Services.AddScoped<ICategoryService, CategoryService>();
 
 // Long - Rental / Contract
-builder.Services.AddScoped<
-    IRentalService,
-    RentalService
->();
-
-builder.Services.AddScoped<
-    IContractService,
-    ContractService
->();
+builder.Services.AddScoped<IRentalService, RentalService>();
+builder.Services.AddScoped<IContractService, ContractService>();
 
 // Hưng - Payment / Operations / Evaluation / Audit
 builder.Services.AddScoped<IPaymentService, PaymentService>();
@@ -46,7 +49,10 @@ builder.Services.AddScoped<ICancellationService, CancellationService>();
 builder.Services.AddScoped<IEvaluationService, EvaluationService>();
 builder.Services.AddScoped<IAuditLogService, AuditLogService>();
 
-// 3. Cấu hình JWT Bearer
+// =========================================================
+// 3. JWT AUTHENTICATION
+// =========================================================
+
 var jwtKey =
     builder.Configuration["Jwt:Key"]
     ?? "DefaultSuperSecretKeyForDevelopmentOnly2026";
@@ -89,22 +95,34 @@ builder.Services
 
 builder.Services.AddAuthorization();
 
-// 4. Cấu hình CORS
+// =========================================================
+// 4. CORS
+// =========================================================
+
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy("AllowAll", policy =>
-    {
-        policy
-            .AllowAnyOrigin()
-            .AllowAnyMethod()
-            .AllowAnyHeader();
-    });
+    options.AddPolicy(
+        "AllowAll",
+        policy =>
+        {
+            policy
+                .AllowAnyOrigin()
+                .AllowAnyMethod()
+                .AllowAnyHeader();
+        });
 });
+
+// =========================================================
+// 5. CONTROLLERS
+// =========================================================
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 
-// 5. Swagger + JWT Authorize
+// =========================================================
+// 6. SWAGGER + JWT
+// =========================================================
+
 builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc(
@@ -120,25 +138,37 @@ builder.Services.AddSwaggerGen(c =>
         new Microsoft.OpenApi.Models.OpenApiSecurityScheme
         {
             Name = "Authorization",
-            Type = Microsoft.OpenApi.Models.SecuritySchemeType.Http,
+
+            Type =
+                Microsoft.OpenApi.Models
+                    .SecuritySchemeType.Http,
+
             Scheme = "bearer",
             BearerFormat = "JWT",
-            In = Microsoft.OpenApi.Models.ParameterLocation.Header,
+
+            In =
+                Microsoft.OpenApi.Models
+                    .ParameterLocation.Header,
+
             Description = "Nhập JWT token"
         });
 
     c.AddSecurityRequirement(
-        new Microsoft.OpenApi.Models.OpenApiSecurityRequirement
+        new Microsoft.OpenApi.Models
+            .OpenApiSecurityRequirement
         {
             {
-                new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+                new Microsoft.OpenApi.Models
+                    .OpenApiSecurityScheme
                 {
                     Reference =
-                        new Microsoft.OpenApi.Models.OpenApiReference
+                        new Microsoft.OpenApi.Models
+                            .OpenApiReference
                         {
                             Type =
                                 Microsoft.OpenApi.Models
-                                    .ReferenceType.SecurityScheme,
+                                    .ReferenceType
+                                    .SecurityScheme,
 
                             Id = "Bearer"
                         }
@@ -149,7 +179,21 @@ builder.Services.AddSwaggerGen(c =>
         });
 });
 
+// =========================================================
+// 7. BUILD APPLICATION
+// =========================================================
+
 var app = builder.Build();
+
+// =========================================================
+// 8. GLOBAL EXCEPTION HANDLING
+// =========================================================
+
+app.UseMiddleware<GlobalExceptionMiddleware>();
+
+// =========================================================
+// 9. SWAGGER
+// =========================================================
 
 if (app.Environment.IsDevelopment())
 {
@@ -157,13 +201,33 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
+// =========================================================
+// 10. HTTPS
+// =========================================================
+
 app.UseHttpsRedirection();
 
+// =========================================================
+// 11. CORS
+// =========================================================
+
 app.UseCors("AllowAll");
+
+// =========================================================
+// 12. AUTHENTICATION / AUTHORIZATION
+// =========================================================
 
 app.UseAuthentication();
 app.UseAuthorization();
 
+// =========================================================
+// 13. CONTROLLERS
+// =========================================================
+
 app.MapControllers();
+
+// =========================================================
+// 14. RUN
+// =========================================================
 
 app.Run();

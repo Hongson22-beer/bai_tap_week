@@ -155,8 +155,11 @@ public class ReturnService : IReturnService
                 "Hợp đồng này đã có thông tin trả xe.");
         }
 
-        var now =
-            request.ThoiGianTraThucTe ?? DateTime.UtcNow;
+        // =====================================================
+        // THỜI GIAN TRẢ THỰC TẾ
+        // LẤY TỪ SERVER, KHÔNG TIN CLIENT
+        // =====================================================
+        var now = DateTime.UtcNow;
 
         decimal tongPhiPhatSinh =
             request.PhiTraMuon +
@@ -180,9 +183,12 @@ public class ReturnService : IReturnService
                 // Nhân viên lấy từ JWT
                 IdNhanVien = currentUserId,
 
+                // Thời gian dự kiến lấy từ hợp đồng.
+                // Nếu hợp đồng đã gia hạn thì đây là thời gian mới nhất.
                 ThoiGianTraDuKien =
-                    request.ThoiGianTraDuKien,
+                    hopDong.ThoiGianTraDuKien,
 
+                // Thời gian trả thực tế lấy từ server
                 ThoiGianTraThucTe =
                     now,
 
@@ -288,7 +294,6 @@ public class ReturnService : IReturnService
 
             // =================================================
             // RETURNED -> COMPLETED
-            //
             // Sau khi tiếp nhận xe thành công, hợp đồng hoàn tất.
             // =================================================
             hopDong.TrangThai =
@@ -325,10 +330,15 @@ public class ReturnService : IReturnService
                 HanhDong = "RETURN_VEHICLE",
                 LoaiDoiTuong = "HOP_DONG",
                 IdDoiTuong = hopDong.Id,
-                DuLieuCu = $"Contract={oldContractStatus}; Vehicle={oldVehicleStatus}",
-                DuLieuMoi = $"Contract=COMPLETED; Vehicle=AVAILABLE; TongPhiPhatSinh={tongPhiPhatSinh}",
-                MoTa = $"Tiếp nhận xe #{xe.Id} trả cho hợp đồng #{hopDong.Id}.",
-                ThoiGian = DateTime.UtcNow
+                DuLieuCu =
+                    $"Contract={oldContractStatus}; Vehicle={oldVehicleStatus}",
+                DuLieuMoi =
+                    $"Contract=COMPLETED; Vehicle=AVAILABLE; " +
+                    $"TongPhiPhatSinh={tongPhiPhatSinh}",
+                MoTa =
+                    $"Tiếp nhận xe #{xe.Id} trả cho hợp đồng #{hopDong.Id}.",
+                ThoiGian =
+                    DateTime.UtcNow
             });
 
             // =================================================

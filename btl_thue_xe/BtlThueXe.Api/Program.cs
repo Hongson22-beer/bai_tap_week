@@ -28,6 +28,16 @@ builder.Services.AddScoped<
     BtlThueXe.Core.Services.IContractService,
     BtlThueXe.Infrastructure.Services.ContractService
 >();
+
+// Đầy đủ các service 
+builder.Services.AddScoped<IPaymentService, PaymentService>();
+builder.Services.AddScoped<IHandOverService, HandOverService>();
+builder.Services.AddScoped<IReturnService, ReturnService>();
+builder.Services.AddScoped<IEvaluationService, EvaluationService>();
+builder.Services.AddScoped<IAuditLogService, AuditLogService>();
+builder.Services.AddScoped<ICancellationService, CancellationService>();
+builder.Services.AddScoped<IExtensionService, ExtensionService>();
+
 // 3. Cấu hình JWT Bearer
 var jwtKey = builder.Configuration["Jwt:Key"] ?? "DefaultSuperSecretKeyForDevelopmentOnly2026";
 var jwtIssuer = builder.Configuration["Jwt:Issuer"] ?? "BtlThueXeApi";
@@ -68,7 +78,7 @@ builder.Services.AddCors(options =>
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 
-// 5. Cấu hình Swagger kèm nút Authorize (sử dụng fully-qualified name để tránh lỗi using)
+// 5. Cấu hình Swagger kèm nút Authorize
 builder.Services.AddSwaggerGen(c =>
 {
     c.SwaggerDoc("v1", new Microsoft.OpenApi.Models.OpenApiInfo 
@@ -77,15 +87,15 @@ builder.Services.AddSwaggerGen(c =>
         Version = "v1" 
     });
 
-   c.AddSecurityDefinition("Bearer", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
-{
-    Name = "Authorization",
-    Type = Microsoft.OpenApi.Models.SecuritySchemeType.Http,
-    Scheme = "bearer",
-    BearerFormat = "JWT",
-    In = Microsoft.OpenApi.Models.ParameterLocation.Header,
-    Description = "Nhập JWT token"
-});
+    c.AddSecurityDefinition("Bearer", new Microsoft.OpenApi.Models.OpenApiSecurityScheme
+    {
+        Name = "Authorization",
+        Type = Microsoft.OpenApi.Models.SecuritySchemeType.Http,
+        Scheme = "bearer",
+        BearerFormat = "JWT",
+        In = Microsoft.OpenApi.Models.ParameterLocation.Header,
+        Description = "Nhập JWT token"
+    });
     c.AddSecurityRequirement(new Microsoft.OpenApi.Models.OpenApiSecurityRequirement
     {
         {
@@ -103,15 +113,7 @@ builder.Services.AddSwaggerGen(c =>
 });
 
 var app = builder.Build();
-using (var scope = app.Services.CreateScope())
-{
-    var service = scope.ServiceProvider
-        .GetRequiredService<BtlThueXe.Core.Services.IRentalService>();
 
-    Console.WriteLine("======================================");
-    Console.WriteLine("IRentalService RESOLVE THANH CONG!");
-    Console.WriteLine("======================================");
-}
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();

@@ -28,76 +28,67 @@ public class ExtensionService : IExtensionService
         CreateExtensionRequest request)
     {
         if (request.IdHopDong <= 0)
-            throw new ArgumentException(
-                "ID hợp đồng không hợp lệ.");
+            throw new ArgumentException("ID hợp đồng không hợp lệ.");
 
         if (request.IdNguoiYeuCau <= 0)
-            throw new ArgumentException(
-                "ID người yêu cầu không hợp lệ.");
+            throw new ArgumentException("ID người yêu cầu không hợp lệ.");
 
         if (request.SoNgayGiaHan <= 0)
-            throw new ArgumentException(
-                "Số ngày gia hạn phải lớn hơn 0.");
+            throw new ArgumentException("Số ngày gia hạn phải lớn hơn 0.");
 
         if (request.TienPhatSinh < 0)
-            throw new ArgumentException(
-                "Tiền phát sinh không được âm.");
+            throw new ArgumentException("Tiền phát sinh không được âm.");
 
-        DateTime thoiGianTraCu =
-            ToUtc(request.ThoiGianTraCu);
-
-        DateTime thoiGianTraMoi =
-            ToUtc(request.ThoiGianTraMoi);
+        DateTime thoiGianTraCu = ToUtc(request.ThoiGianTraCu);
+        DateTime thoiGianTraMoi = ToUtc(request.ThoiGianTraMoi);
 
         if (thoiGianTraMoi <= thoiGianTraCu)
         {
-            throw new ArgumentException(
-                "Thời gian trả mới phải sau thời gian trả cũ.");
+            throw new ArgumentException("Thời gian trả mới phải sau thời gian trả cũ.");
+        }
+
+        // --- KIỂM TRA TRẠNG THÁI HỢP ĐỒNG ---
+        var hopDong = await _context.HopDongs
+            .FirstOrDefaultAsync(h => h.Id == request.IdHopDong);
+
+        if (hopDong == null)
+        {
+            throw new KeyNotFoundException($"Không tìm thấy hợp đồng #{request.IdHopDong}.");
+        }
+
+        // Chặn nếu hợp đồng đã hoàn tất trả xe hoặc đã bị hủy
+        if (hopDong.TrangThai == "COMPLETED" || hopDong.TrangThai == "DA_TRA_XE" || hopDong.TrangThai == "CANCELLED")
+        {
+            throw new InvalidOperationException($"Hợp đồng đã kết thúc (trạng thái: {hopDong.TrangThai}), không thể yêu cầu gia hạn.");
+        }
+
+        // Chặn nếu đang có một yêu cầu gia hạn khác chưa được duyệt
+        bool hasPending = await _context.YeuCauGiaHans
+            .AnyAsync(x => x.IdHopDong == request.IdHopDong && x.TrangThai == "PENDING");
+        if (hasPending)
+        {
+            throw new InvalidOperationException("Hợp đồng này đang có một yêu cầu gia hạn chờ xử lý.");
         }
 
         var extension = new YeuCauGiaHan
         {
-            IdHopDong =
-                request.IdHopDong,
-
-            IdNguoiYeuCau =
-                request.IdNguoiYeuCau,
-
-            ThoiGianTraCu =
-                thoiGianTraCu,
-
-            ThoiGianTraMoi =
-                thoiGianTraMoi,
-
-            SoNgayGiaHan =
-                request.SoNgayGiaHan,
-
-            TienPhatSinh =
-                request.TienPhatSinh,
-
-            LyDo =
-                string.IsNullOrWhiteSpace(request.LyDo)
-                    ? null
-                    : request.LyDo.Trim(),
-
-            TrangThai =
-                "PENDING",
-
-            IdNguoiXuLy =
-                null,
-
-            ThoiGianTao =
-                DateTime.UtcNow,
-
-            ThoiGianXuLy =
-                null
+            IdHopDong = request.IdHopDong,
+            IdNguoiYeuCau = request.IdNguoiYeuCau,
+            ThoiGianTraCu = thoiGianTraCu,
+            ThoiGianTraMoi = thoiGianTraMoi,
+            SoNgayGiaHan = request.SoNgayGiaHan,
+            TienPhatSinh = request.TienPhatSinh,
+            LyDo = string.IsNullOrWhiteSpace(request.LyDo) ? null : request.LyDo.Trim(),
+            TrangThai = "PENDING",
+            IdNguoiXuLy = null,
+            ThoiGianTao = DateTime.UtcNow,
+            ThoiGianXuLy = null
         };
 
         // =====================================================
         // LƯU YÊU CẦU GIA HẠN
         // =====================================================
         _context.YeuCauGiaHans.Add(extension);
-
         await _context.SaveChangesAsync();
 
         // =====================================================
@@ -105,51 +96,25 @@ public class ExtensionService : IExtensionService
         // =====================================================
         var duLieuMoi = JsonSerializer.Serialize(new
         {
-            idHopDong =
-                extension.IdHopDong,
-
-            thoiGianTraCu =
-                extension.ThoiGianTraCu,
-
-            thoiGianTraMoi =
-                extension.ThoiGianTraMoi,
-
-            soNgayGiaHan =
-                extension.SoNgayGiaHan,
-
-            tienPhatSinh =
-                extension.TienPhatSinh,
-
-            trangThai =
-                extension.TrangThai
+            idHopDong = extension.IdHopDong,
+            thoiGianTraCu = extension.ThoiGianTraCu,
+            thoiGianTraMoi = extension.ThoiGianTraMoi,
+            soNgayGiaHan = extension.SoNgayGiaHan,
+            tienPhatSinh = extension.TienPhatSinh,
+            trangThai = extension.TrangThai
         });
 
         await _auditLogService.CreateAsync(
             new CreateAuditLogRequest
             {
-                IdNguoiDung =
-                    extension.IdNguoiYeuCau,
-
-                HanhDong =
-                    "EXTENSION_CREATED",
-
-                LoaiDoiTuong =
-                    "EXTENSION",
-
-                IdDoiTuong =
-                    extension.Id,
-
-                DuLieuCu =
-                    null,
-
-                DuLieuMoi =
-                    duLieuMoi,
-
-                MoTa =
-                    $"Tạo yêu cầu gia hạn cho hợp đồng #{extension.IdHopDong}",
-
-                IpAddress =
-                    null
+                IdNguoiDung = extension.IdNguoiYeuCau,
+                HanhDong = "EXTENSION_CREATED",
+                LoaiDoiTuong = "EXTENSION",
+                IdDoiTuong = extension.Id,
+                DuLieuCu = null,
+                DuLieuMoi = duLieuMoi,
+                MoTa = $"Tạo yêu cầu gia hạn cho hợp đồng #{extension.IdHopDong}",
+                IpAddress = null
             });
 
         return MapToResponse(extension);
@@ -163,11 +128,9 @@ public class ExtensionService : IExtensionService
         if (id <= 0)
             return null;
 
-        var extension =
-            await _context.YeuCauGiaHans
-                .AsNoTracking()
-                .FirstOrDefaultAsync(
-                    x => x.Id == id);
+        var extension = await _context.YeuCauGiaHans
+            .AsNoTracking()
+            .FirstOrDefaultAsync(x => x.Id == id);
 
         if (extension == null)
             return null;
@@ -178,23 +141,18 @@ public class ExtensionService : IExtensionService
     // =========================================================
     // LẤY DANH SÁCH GIA HẠN THEO HỢP ĐỒNG
     // =========================================================
-    public async Task<List<ExtensionResponse>>
-        GetByContractIdAsync(int idHopDong)
+    public async Task<List<ExtensionResponse>> GetByContractIdAsync(int idHopDong)
     {
         if (idHopDong <= 0)
             return new List<ExtensionResponse>();
 
-        var extensions =
-            await _context.YeuCauGiaHans
-                .AsNoTracking()
-                .Where(x =>
-                    x.IdHopDong == idHopDong)
-                .OrderByDescending(x => x.Id)
-                .ToListAsync();
+        var extensions = await _context.YeuCauGiaHans
+            .AsNoTracking()
+            .Where(x => x.IdHopDong == idHopDong)
+            .OrderByDescending(x => x.Id)
+            .ToListAsync();
 
-        return extensions
-            .Select(MapToResponse)
-            .ToList();
+        return extensions.Select(MapToResponse).ToList();
     }
 
     // =========================================================
@@ -205,61 +163,50 @@ public class ExtensionService : IExtensionService
         ProcessExtensionRequest request)
     {
         if (id <= 0)
-        {
-            throw new ArgumentException(
-                "ID yêu cầu gia hạn không hợp lệ.");
-        }
+            throw new ArgumentException("ID yêu cầu gia hạn không hợp lệ.");
 
         if (request.IdNguoiXuLy <= 0)
+            throw new ArgumentException("ID người xử lý không hợp lệ.");
+
+        string status = request.TrangThai.Trim().ToUpperInvariant();
+
+        if (status != "APPROVED" && status != "REJECTED")
         {
-            throw new ArgumentException(
-                "ID người xử lý không hợp lệ.");
+            throw new ArgumentException("Trạng thái chỉ được là APPROVED hoặc REJECTED.");
         }
 
-        string status = request.TrangThai
-            .Trim()
-            .ToUpperInvariant();
-
-        if (status != "APPROVED" &&
-            status != "REJECTED")
-        {
-            throw new ArgumentException(
-                "Trạng thái chỉ được là APPROVED hoặc REJECTED.");
-        }
-
-        var extension =
-            await _context.YeuCauGiaHans
-                .FirstOrDefaultAsync(
-                    x => x.Id == id);
+        var extension = await _context.YeuCauGiaHans
+            .FirstOrDefaultAsync(x => x.Id == id);
 
         if (extension == null)
         {
-            throw new ArgumentException(
-                "Không tìm thấy yêu cầu gia hạn.");
+            throw new ArgumentException("Không tìm thấy yêu cầu gia hạn.");
         }
 
         if (extension.TrangThai != "PENDING")
         {
-            throw new ArgumentException(
-                "Yêu cầu gia hạn này đã được xử lý.");
+            throw new ArgumentException("Yêu cầu gia hạn này đã được xử lý.");
         }
 
-        // Lưu trạng thái cũ để Audit
-        string oldStatus =
-            extension.TrangThai;
+        string oldStatus = extension.TrangThai;
 
-        extension.TrangThai =
-            status;
+        extension.TrangThai = status;
+        extension.IdNguoiXuLy = request.IdNguoiXuLy;
+        extension.ThoiGianXuLy = DateTime.UtcNow;
 
-        extension.IdNguoiXuLy =
-            request.IdNguoiXuLy;
+        // Nếu DUYỆT: Tự động cập nhật lại hạn trả và tiền trên hợp đồng
+        if (status == "APPROVED")
+        {
+            var hopDong = await _context.HopDongs
+                .FirstOrDefaultAsync(h => h.Id == extension.IdHopDong);
 
-        extension.ThoiGianXuLy =
-            DateTime.UtcNow;
+            if (hopDong != null)
+            {
+                hopDong.ThoiGianTraDuKien = extension.ThoiGianTraMoi;
+                hopDong.TongTien += extension.TienPhatSinh;
+            }
+        }
 
-        // =====================================================
-        // LƯU KẾT QUẢ XỬ LÝ
-        // =====================================================
         await _context.SaveChangesAsync();
 
         // =====================================================
@@ -267,58 +214,32 @@ public class ExtensionService : IExtensionService
         // =====================================================
         var duLieuCu = JsonSerializer.Serialize(new
         {
-            trangThai =
-                oldStatus
+            trangThai = oldStatus
         });
 
         var duLieuMoiXuLy = JsonSerializer.Serialize(new
         {
-            trangThai =
-                extension.TrangThai,
-
-            idNguoiXuLy =
-                extension.IdNguoiXuLy,
-
-            thoiGianXuLy =
-                extension.ThoiGianXuLy
+            trangThai = extension.TrangThai,
+            idNguoiXuLy = extension.IdNguoiXuLy,
+            thoiGianXuLy = extension.ThoiGianXuLy
         });
 
-        string auditAction =
-            status == "APPROVED"
-                ? "EXTENSION_APPROVED"
-                : "EXTENSION_REJECTED";
-
-        string moTa =
-            status == "APPROVED"
-                ? $"Duyệt yêu cầu gia hạn #{extension.Id} cho hợp đồng #{extension.IdHopDong}"
-                : $"Từ chối yêu cầu gia hạn #{extension.Id} cho hợp đồng #{extension.IdHopDong}";
+        string auditAction = status == "APPROVED" ? "EXTENSION_APPROVED" : "EXTENSION_REJECTED";
+        string moTa = status == "APPROVED"
+            ? $"Duyệt yêu cầu gia hạn #{extension.Id} cho hợp đồng #{extension.IdHopDong}"
+            : $"Từ chối yêu cầu gia hạn #{extension.Id} cho hợp đồng #{extension.IdHopDong}";
 
         await _auditLogService.CreateAsync(
             new CreateAuditLogRequest
             {
-                IdNguoiDung =
-                    request.IdNguoiXuLy,
-
-                HanhDong =
-                    auditAction,
-
-                LoaiDoiTuong =
-                    "EXTENSION",
-
-                IdDoiTuong =
-                    extension.Id,
-
-                DuLieuCu =
-                    duLieuCu,
-
-                DuLieuMoi =
-                    duLieuMoiXuLy,
-
-                MoTa =
-                    moTa,
-
-                IpAddress =
-                    null
+                IdNguoiDung = request.IdNguoiXuLy,
+                HanhDong = auditAction,
+                LoaiDoiTuong = "EXTENSION",
+                IdDoiTuong = extension.Id,
+                DuLieuCu = duLieuCu,
+                DuLieuMoi = duLieuMoiXuLy,
+                MoTa = moTa,
+                IpAddress = null
             });
 
         return MapToResponse(extension);
@@ -335,54 +256,28 @@ public class ExtensionService : IExtensionService
         if (value.Kind == DateTimeKind.Local)
             return value.ToUniversalTime();
 
-        return DateTime.SpecifyKind(
-            value,
-            DateTimeKind.Utc);
+        return DateTime.SpecifyKind(value, DateTimeKind.Utc);
     }
 
     // =========================================================
     // ENTITY -> RESPONSE DTO
     // =========================================================
-    private static ExtensionResponse MapToResponse(
-        YeuCauGiaHan extension)
+    private static ExtensionResponse MapToResponse(YeuCauGiaHan extension)
     {
         return new ExtensionResponse
         {
-            Id =
-                extension.Id,
-
-            IdHopDong =
-                extension.IdHopDong,
-
-            IdNguoiYeuCau =
-                extension.IdNguoiYeuCau,
-
-            ThoiGianTraCu =
-                extension.ThoiGianTraCu,
-
-            ThoiGianTraMoi =
-                extension.ThoiGianTraMoi,
-
-            SoNgayGiaHan =
-                extension.SoNgayGiaHan,
-
-            TienPhatSinh =
-                extension.TienPhatSinh,
-
-            LyDo =
-                extension.LyDo,
-
-            TrangThai =
-                extension.TrangThai,
-
-            IdNguoiXuLy =
-                extension.IdNguoiXuLy,
-
-            ThoiGianTao =
-                extension.ThoiGianTao,
-
-            ThoiGianXuLy =
-                extension.ThoiGianXuLy
+            Id = extension.Id,
+            IdHopDong = extension.IdHopDong,
+            IdNguoiYeuCau = extension.IdNguoiYeuCau,
+            ThoiGianTraCu = extension.ThoiGianTraCu,
+            ThoiGianTraMoi = extension.ThoiGianTraMoi,
+            SoNgayGiaHan = extension.SoNgayGiaHan,
+            TienPhatSinh = extension.TienPhatSinh,
+            LyDo = extension.LyDo,
+            TrangThai = extension.TrangThai,
+            IdNguoiXuLy = extension.IdNguoiXuLy,
+            ThoiGianTao = extension.ThoiGianTao,
+            ThoiGianXuLy = extension.ThoiGianXuLy
         };
     }
 }

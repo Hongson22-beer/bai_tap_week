@@ -1,0 +1,7 @@
+CARRENT PRO - CUSTOMER VERIFICATION UI FIX
+- Staff > Khach hang: added clear professional verification action buttons.
+- Fixed verification action to call verify-documents for BOTH CCCD and GPLX.
+- Customer with all 3 document images can click "Xac minh ho so".
+- Verified customer can click "Huy xac minh".
+- Added verification summary cards and upgraded staff UI styling.
+- Kept previous contract filtering fix: APPROVED rental already linked to a contract is hidden from create-contract queue.
